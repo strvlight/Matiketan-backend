@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MATIKETAN Detection Simulator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f0f4f8;
+        }
+        .card {
+            background: white;
+            padding: 24px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        h2 { color: #1A3A6B; }
+        input, select {
+            width: 100%;
+            padding: 10px;
+            margin: 8px 0 16px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        button {
+            background: #1A3A6B;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: bold;
+            width: 100%;
+        }
+        button:hover { background: #1A56DB; }
+        .result {
+            margin-top: 16px;
+            padding: 12px;
+            border-radius: 8px;
+            display: none;
+        }
+        .success { background: #EEF9F3; color: #2D7A4F; border: 1px solid #A8D5B5; }
+        .error { background: #FFF0F0; color: #CC0000; border: 1px solid #FFB3B3; }
+        .badge {
+            display: inline-block;
+            background: #1A3A6B;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            margin-bottom: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <span class="badge">🚗 YOLOv5+ALPR Simulator</span>
+        <h2>MATIKETAN Detection Test</h2>
+        <p style="color: #666; font-size: 13px;">
+            Simulates the existing plate recognition system
+            sending a violation detection to MATIKETAN.
+        </p>
+
+        <label><b>Plate Number</b></label>
+        <input type="text" id="plate" value="ABC 1234"
+               placeholder="e.g. ABC 1234">
+
+        <label><b>Location</b></label>
+        <select id="location">
+            <option>J.C. Aquino Ave., Butuan City</option>
+            <option>Montilla Blvd., Butuan City</option>
+            <option>Rizal St., Butuan City</option>
+            <option>P. Burgos St., Butuan City</option>
+            <option>A. Rosales Ave., Butuan City</option>
+        </select>
+
+        <label><b>Confidence Score (%)</b></label>
+        <input type="number" id="confidence" value="94.5"
+               min="0" max="100" step="0.1">
+
+        <label><b>Violation Type</b></label>
+        <select id="violation">
+            <option>Illegal Parking</option>
+            <option>Obstruction</option>
+            <option>Double Parking</option>
+            <option>No Parking Zone</option>
+        </select>
+
+        <button onclick="sendDetection()">
+            🚨 Send Detection to MATIKETAN
+        </button>
+
+        <div class="result" id="result"></div>
+    </div>
+
+    <script>
+        async function sendDetection() {
+            const plate = document.getElementById('plate').value;
+            const location = document.getElementById('location').value;
+            const confidence = document.getElementById('confidence').value;
+            const violation = document.getElementById('violation').value;
+            const resultDiv = document.getElementById('result');
+
+            // ← I-change sa imong IP
+            const API_URL = 'http://127.0.0.1:8000/api/detections/receive/';
+
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.innerHTML = '⏳ Sending detection...';
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        plate_number: plate,
+                        location: location,
+                        confidence_score: parseFloat(confidence),
+                        violation_type: violation,
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    resultDiv.className = 'result success';
+                    resultDiv.innerHTML = `
+                        ✅ Detection sent successfully!<br>
+                        <b>Detection ID:</b> ${data.id}<br>
+                        <b>Plate:</b> ${data.plate_number}<br>
+                        <b>Status:</b> ${data.status}<br>
+                        <br>
+                        📱 Check the MATIKETAN app Alerts tab!
+                    `;
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `❌ Error: ${JSON.stringify(data)}`;
+                }
+            } catch (e) {
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `❌ Connection error: ${e.message}`;
+            }
+        }
+    </script>
+</body>
+</html>
