@@ -19,7 +19,7 @@ SECRET_KEY = os.getenv('SECRET_KEY', 'dev-only-key-change-me')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = ['*', '.ngrok-free.dev', '.ngrok-free.app']
+ALLOWED_HOSTS = ['*']
 
 
 
@@ -158,7 +158,6 @@ CORS_ALLOW_HEADERS = [
     'origin',
     'x-csrftoken',
     'x-requested-with',
-    'ngrok-skip-browser-warning',
 ]
 
 # ─────────────────────────────────────────
