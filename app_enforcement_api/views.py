@@ -289,6 +289,52 @@ def update_detection(request, detection_id):
 
 
 # ─────────────────────────────────────────
+# FINES (default amounts; editable in Django Admin > Violations)
+# ─────────────────────────────────────────
+FINE_SCHEDULE = {
+    'Illegal Parking': 500,
+    'No Parking Zone': 500,
+    'Obstruction': 750,
+    'Double Parking': 500,
+    'No Loading/Unloading Zone': 500,
+    'Blocking Driveway': 500,
+    'Expired Registration': 1000,
+    'No Valid OR/CR': 1000,
+}
+
+
+def resolve_violations(violation_text):
+    """'A, B' -> (['A', 'B'], total fine)"""
+    names = [n.strip() for n in violation_text.split(',') if n.strip()]
+    total = 0
+    for n in names:
+        v, _ = Violation.objects.get_or_create(
+            name=n,
+            defaults={'fine_amount': FINE_SCHEDULE.get(n, 500)},
+        )
+        total += v.fine_amount
+    return names, total
+
+
+def build_sms_message(ticket, violation_names, total_fine):
+    vehicle = f" ({ticket.vehicle_type})" if ticket.vehicle_type else ""
+    issued = timezone.localtime(ticket.date_issued).strftime('%b %d, %Y %I:%M %p')
+    return (
+        f"CITY OF BUTUAN - CTTMD\n"
+        f"TRAFFIC VIOLATION NOTICE\n\n"
+        f"Plate No.: {ticket.plate_number}{vehicle}\n"
+        f"Violation: {'; '.join(violation_names)}\n"
+        f"Fine: PHP {total_fine:,.2f}\n"
+        f"Location: {ticket.location}\n"
+        f"Date/Time: {issued}\n"
+        f"Ticket No.: {ticket.transaction_code}\n"
+        f"Issued by: Officer {ticket.enforcer.badge_id}\n\n"
+        f"Please settle this fine at the CTTMD Office, Butuan City within "
+        f"five (5) working days, and present your Ticket No. or plate number. "
+        f"Failure to settle may incur additional penalties."
+    )
+
+# ─────────────────────────────────────────
 # SUBMIT TICKET (custom endpoint)
 # ─────────────────────────────────────────
 @api_view(['POST'])
@@ -303,15 +349,18 @@ def submit_ticket(request):
             status=status.HTTP_401_UNAUTHORIZED
         )
 
-    # Get violation object by name
+    # Get violations (can be several, separated by commas) and the total fine
     violation_name = request.data.get('violation_name', '')
-    try:
-        violation = Violation.objects.get(name=violation_name)
-    except Violation.DoesNotExist:
-        violation, _ = Violation.objects.get_or_create(
-            name=violation_name,
-            defaults={'fine_amount': 500}
+    names, total_fine = resolve_violations(violation_name)
+    if not names:
+        return Response(
+            {'error': 'At least one violation is required.'},
+            status=status.HTTP_400_BAD_REQUEST
         )
+    violation, _ = Violation.objects.update_or_create(
+        name=', '.join(names),
+        defaults={'fine_amount': total_fine},
+    )
 
     # Create ticket
     ticket = Ticket.objects.create(
@@ -341,6 +390,9 @@ def submit_ticket(request):
             f"Date: {timezone.localtime(ticket.date_issued).strftime('%b %d, %Y %I:%M %p')}\n"
             f"Please settle your fine at the CTTMD Office, Butuan City."
         )
+    sms_message = build_sms_message(ticket, names, total_fine)
+
+    if phone_number:
         sms_sent = send_sms(phone_number, sms_message)
 
     return Response({
@@ -354,7 +406,9 @@ def submit_ticket(request):
         'enforcer_name': enforcer.full_name,
         'status': ticket.status,
         'date_issued': timezone.localtime(ticket.date_issued).strftime('%Y-%m-%d %H:%M:%S'),
+        'fine_amount': str(total_fine),
         'sms_sent': sms_sent,
+        'sms_message': sms_message,
     }, status=status.HTTP_201_CREATED)
 
 
