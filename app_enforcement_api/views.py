@@ -542,9 +542,21 @@ def upload_evidence(request, ticket_id):
 # VIEWSETS (CRUD)
 # ─────────────────────────────────────────
 class EnforcerViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAdminUser] 
+    permission_classes = [IsAdminUser]
     queryset = Enforcer.objects.all()
     serializer_class = EnforcerSerializer
+
+    def perform_update(self, serializer):
+        enforcer = serializer.save()
+        password = self.request.data.get('password')
+        if password:
+            enforcer.user.set_password(str(password))
+            enforcer.user.save()
+
+    def perform_destroy(self, instance):
+        user = instance.user
+        instance.delete()
+        user.delete()
 
 
 class ViolationViewSet(viewsets.ModelViewSet):
