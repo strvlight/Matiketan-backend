@@ -320,7 +320,7 @@ def build_sms_message(ticket, violation_names, total_fine):
     vehicle = f" ({ticket.vehicle_type})" if ticket.vehicle_type else ""
     issued = timezone.localtime(ticket.date_issued).strftime('%b %d, %Y %I:%M %p')
     return (
-        f"CITY OF BUTUAN - CTTMD\n"
+        f"[CITY OF BUTUAN - CTTMD]\n"
         f"TRAFFIC VIOLATION NOTICE\n\n"
         f"Plate No.: {ticket.plate_number}{vehicle}\n"
         f"Violation: {'; '.join(violation_names)}\n"
