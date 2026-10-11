@@ -202,9 +202,9 @@ def admin_login(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])  # ← YOLOv5 system calls this
 def receive_detection(request):
-    """
-    Called by the YOLOv5+ALPR system when it detects a violation.
-    """
+    if request.headers.get('X-API-Key') != os.environ.get('DETECTION_API_KEY'):
+        return Response({'error': 'Unauthorized.'}, status=status.HTTP_401_UNAUTHORIZED)
+    
     plate_number = request.data.get('plate_number', '')
     location = request.data.get('location', '')
     confidence_score = request.data.get('confidence_score', 0.0)
@@ -395,7 +395,14 @@ def get_tickets(request):
 # ─────────────────────────────────────────
 # ADMIN: helper to format a ticket
 # ─────────────────────────────────────────
-def ticket_to_dict(t):
+def ticket_to_dict(t, request=None):
+    evidence = []
+    for e in t.evidence.all():
+        url = e.file.url
+        if request:
+            url = request.build_absolute_uri(url)
+        evidence.append({'id': e.id, 'url': url, 'type': e.file_type})
+
     return {
         'id': t.id,
         'transaction_code': t.transaction_code,
@@ -412,8 +419,8 @@ def ticket_to_dict(t):
             timezone.localtime(t.date_paid).strftime('%b %d, %Y %I:%M %p')
             if t.date_paid else None
         ),
+        'evidence': evidence,
     }
-
 
 # ─────────────────────────────────────────
 # ADMIN: search tickets by plate or TX code
@@ -424,9 +431,9 @@ def admin_search_tickets(request):
     q = request.query_params.get('q', '').strip().upper()
     status_filter = request.query_params.get('status', '').strip().lower()
 
-    tickets = Ticket.objects.select_related('violation', 'enforcer').annotate(
-        plate_clean=Replace('plate_number', Value(' '), Value(''))
-    ).order_by('-date_issued')
+    tickets = Ticket.objects.select_related('violation', 'enforcer').prefetch_related('evidence').annotate(
+    plate_clean=Replace('plate_number', Value(' '), Value(''))
+).order_by('-date_issued')
 
     if q:
         tickets = tickets.filter(
