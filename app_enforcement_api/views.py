@@ -9,6 +9,7 @@ from django.db.models.functions import Replace
 from django.db import transaction 
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
+import os
 import random, string
 
 from .models import Enforcer, Evidence, Violation, Ticket, Detection, VehicleRegistration
@@ -242,6 +243,7 @@ def receive_detection(request):
 # GET PENDING DETECTIONS (Flutter polls this)
 # ─────────────────────────────────────────
 @api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def get_pending_detections(request):
     """
     Flutter app polls this endpoint to check for new detections.
@@ -268,6 +270,7 @@ def get_pending_detections(request):
 # UPDATE DETECTION STATUS (confirm/decline)
 # ─────────────────────────────────────────
 @api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
 def update_detection(request, detection_id):
     try:
         detection = Detection.objects.get(id=detection_id)
@@ -334,6 +337,16 @@ def build_sms_message(ticket, violation_names, total_fine):
         f"five (5) working days, and present your Ticket No. or plate number. "
         f"Failure to settle may incur additional penalties."
     )
+    
+def ticket_sms_text(t):
+    """Rebuild the SMS text of an existing ticket."""
+    names = [
+        n.strip()
+        for n in (t.violation.name if t.violation else '').split(',')
+        if n.strip()
+    ]
+    fine = t.violation.fine_amount if t.violation else 0
+    return build_sms_message(t, names, fine)     
 
 # ─────────────────────────────────────────
 # SUBMIT TICKET (custom endpoint)
@@ -488,7 +501,7 @@ def admin_search_tickets(request):
     if status_filter in ('paid', 'unpaid'):
         tickets = tickets.filter(status=status_filter)
 
-    return Response([ticket_to_dict(t) for t in tickets[:100]])
+    return Response([ticket_to_dict(t, request) for t in tickets[:100]])
 
 
 # ─────────────────────────────────────────
@@ -504,7 +517,7 @@ def admin_mark_paid(request, ticket_id):
 
     if ticket.status == 'paid':
         return Response(
-            {'error': 'Ticket is already paid.', 'ticket': ticket_to_dict(ticket)},
+            {'error': 'Ticket is already paid.', 'ticket': ticket_to_dict(ticket, request)},
             status=status.HTTP_400_BAD_REQUEST
         )
 
@@ -512,7 +525,7 @@ def admin_mark_paid(request, ticket_id):
     ticket.date_paid = timezone.now()
     ticket.save()
 
-    return Response(ticket_to_dict(ticket), status=status.HTTP_200_OK)
+    return Response(ticket_to_dict(ticket, request), status=status.HTTP_200_OK)
 
 # ─────────────────────────────────────────
 # ADMIN: create an enforcer account
