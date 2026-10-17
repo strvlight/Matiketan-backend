@@ -40,6 +40,7 @@ class Ticket(models.Model):
     transaction_code = models.CharField(max_length=20, unique=True)
     plate_number = models.CharField(max_length=15)
     vehicle_type = models.CharField(max_length=50, blank=True)
+    driver_name = models.CharField(max_length=100, blank=True, default='')
     violation = models.ForeignKey(Violation, on_delete=models.SET_NULL, null=True)
     location = models.CharField(max_length=255)
     enforcer = models.ForeignKey(Enforcer, on_delete=models.SET_NULL, null=True)

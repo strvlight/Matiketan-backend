@@ -10,6 +10,8 @@ from django.db import transaction
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 import random, string
+
+import vehicle
 from .models import Enforcer, Evidence, Violation, Ticket, Detection, VehicleRegistration
 from .serializer import (
     EnforcerSerializer, ViolationSerializer,
@@ -367,6 +369,7 @@ def submit_ticket(request):
         transaction_code=generate_tx_code(),
         plate_number=request.data.get('plate_number', ''),
         vehicle_type=request.data.get('vehicle_type', ''),
+        driver_name=str(request.data.get('driver_name', '')).strip(), 
         violation=violation,
         location=request.data.get('location', ''),
         enforcer=enforcer,
@@ -383,6 +386,8 @@ def submit_ticket(request):
             f"[CTTMD BUTUAN] Traffic Violation Notice\n"
             f"Transaction: {ticket.transaction_code}\n"
             f"Plate: {ticket.plate_number}\n"
+            f"Plate No.: {ticket.plate_number}{vehicle}\n"
+            f"{driver}"
             f"Vehicle: {ticket.vehicle_type}\n"
             f"Violation: {violation.name}\n"
             f"Location: {ticket.location}\n"
@@ -395,11 +400,14 @@ def submit_ticket(request):
     if phone_number:
         sms_sent = send_sms(phone_number, sms_message)
 
+    driver = f"Driver: {ticket.driver_name}\n" if ticket.driver_name else ""
+    
     return Response({
         'id': ticket.id,
         'transaction_code': ticket.transaction_code,
         'plate_number': ticket.plate_number,
         'vehicle_type': ticket.vehicle_type,
+        'driver_name': ticket.driver_name,
         'violation': ticket.violation.name,
         'location': ticket.location,
         'enforcer_badge': enforcer.badge_id,
@@ -436,6 +444,7 @@ def get_tickets(request):
             'transaction_code': t.transaction_code,
             'plate_number': t.plate_number,
             'vehicle_type': t.vehicle_type,
+            'driver_name': t.driver_name,
             'violation': t.violation.name if t.violation else '',
             'location': t.location,
             'enforcer_badge': enforcer.badge_id,
@@ -462,6 +471,7 @@ def ticket_to_dict(t, request=None):
         'transaction_code': t.transaction_code,
         'plate_number': t.plate_number,
         'vehicle_type': t.vehicle_type,
+        'driver_name': t.driver_name,
         'violation': t.violation.name if t.violation else '',
         'fine_amount': str(t.violation.fine_amount) if t.violation else '0',
         'location': t.location,
