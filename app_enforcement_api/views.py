@@ -11,7 +11,6 @@ from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 import random, string
 
-import vehicle
 from .models import Enforcer, Evidence, Violation, Ticket, Detection, VehicleRegistration
 from .serializer import (
     EnforcerSerializer, ViolationSerializer,
@@ -376,31 +375,13 @@ def submit_ticket(request):
         status='unpaid',
     )
 
-    # ── SMS NOTIFICATION ──
+        # ── SMS NOTIFICATION ──
     phone_number = request.data.get('phone_number', '')
-    print(f'[DEBUG] Phone number received: "{phone_number}"') 
+    sms_message = build_sms_message(ticket, names, total_fine)
     sms_sent = False
 
     if phone_number:
-        sms_message = (
-            f"[CTTMD BUTUAN] Traffic Violation Notice\n"
-            f"Transaction: {ticket.transaction_code}\n"
-            f"Plate: {ticket.plate_number}\n"
-            f"Plate No.: {ticket.plate_number}{vehicle}\n"
-            f"{driver}"
-            f"Vehicle: {ticket.vehicle_type}\n"
-            f"Violation: {violation.name}\n"
-            f"Location: {ticket.location}\n"
-            f"Issued By: {enforcer.badge_id}\n"
-            f"Date: {timezone.localtime(ticket.date_issued).strftime('%b %d, %Y %I:%M %p')}\n"
-            f"Please settle your fine at the CTTMD Office, Butuan City."
-        )
-    sms_message = build_sms_message(ticket, names, total_fine)
-
-    if phone_number:
         sms_sent = send_sms(phone_number, sms_message)
-
-    driver = f"Driver: {ticket.driver_name}\n" if ticket.driver_name else ""
     
     return Response({
         'id': ticket.id,
