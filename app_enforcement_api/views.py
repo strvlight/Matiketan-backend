@@ -407,7 +407,7 @@ def submit_ticket(request):
         'enforcer_badge': enforcer.badge_id,
         'enforcer_name': enforcer.full_name,
         'status': ticket.status,
-        'date_issued': timezone.localtime(ticket.date_issued).strftime('%Y-%m-%d %H:%M:%S'),
+        'date_issued': timezone.localtime(ticket.date_issued).strftime('%b %d, %Y %I:%M %p'),
         'fine_amount': str(total_fine),
         'sms_sent': sms_sent,
         'sms_message': sms_message,
@@ -444,6 +444,8 @@ def get_tickets(request):
             'enforcer_badge': enforcer.badge_id,
             'enforcer_name': enforcer.full_name,
             'status': t.status,
+            'fine_amount': str(t.violation.fine_amount) if t.violation else '0',
+            'sms_message': ticket_sms_text(t),
             'date_issued':timezone.localtime(t.date_issued).strftime('%b %d, %Y %I:%M %p'),
         })
 
