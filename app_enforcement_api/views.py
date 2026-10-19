@@ -204,7 +204,8 @@ def admin_login(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])  # ← YOLOv5 system calls this
 def receive_detection(request):
-    if request.headers.get('X-API-Key') != os.environ.get('DETECTION_API_KEY'):
+    expected = os.environ.get('DETECTION_API_KEY')
+    if not expected or request.headers.get('X-API-Key') != expected:
         return Response({'error': 'Unauthorized.'}, status=status.HTTP_401_UNAUTHORIZED)
     
     plate_number = request.data.get('plate_number', '')
