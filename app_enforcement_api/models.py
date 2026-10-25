@@ -11,6 +11,8 @@ class Enforcer(models.Model):
     contact_number = models.CharField(max_length=15, blank=True)
     is_on_duty = models.BooleanField(default=False)
     date_joined = models.DateTimeField(auto_now_add=True)
+    
+    profile_photo = models.ImageField(upload_to='enforcer_profiles/', blank=True, null=True)
 
     def __str__(self):
         return f"{self.full_name} ({self.badge_id})"

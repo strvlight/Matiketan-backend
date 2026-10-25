@@ -3,9 +3,24 @@ from .models import Enforcer, Violation, Ticket, Detection
 
 
 class EnforcerSerializer(serializers.ModelSerializer):
+    profile_photo_url = serializers.SerializerMethodField()
+
     class Meta:
         model = Enforcer
-        fields = '__all__'
+        fields = [
+            'id', 'badge_id', 'full_name', 'contact_number',
+            'is_on_duty', 'profile_photo', 'profile_photo_url',
+        ]
+        extra_kwargs = {
+            'profile_photo': {'write_only': True, 'required': False},
+        }
+
+    def get_profile_photo_url(self, obj):
+        if not obj.profile_photo:
+            return None
+        request = self.context.get('request')
+        url = obj.profile_photo.url
+        return request.build_absolute_uri(url) if request else url
 
 
 class ViolationSerializer(serializers.ModelSerializer):
