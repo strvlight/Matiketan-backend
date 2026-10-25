@@ -7,13 +7,17 @@ from rest_framework.authtoken.models import Token
 from django.utils import timezone
 from django.db.models import Q, Value
 from django.db.models.functions import Replace
-from django.db import transaction 
+from django.db import transaction
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
+from django.http import HttpResponse
+from django.conf import settings
 import os
 import random, string
+from io import BytesIO
+from PIL import Image
 
-from .models import Enforcer, Evidence, Violation, Ticket, Detection, VehicleRegistration
+from .models import Enforcer, Evidence, Violation, Ticket, Detection, DetectionImage, VehicleRegistration
 from .serializer import (
     EnforcerSerializer, ViolationSerializer,
     TicketSerializer, DetectionSerializer
@@ -202,44 +206,58 @@ def admin_login(request):
 # ─────────────────────────────────────────
 # RECEIVE DETECTION FROM YOLOv5+ALPR
 # ─────────────────────────────────────────
+def compress_image(uploaded_file, max_width=800, quality=70):
+    img = Image.open(uploaded_file).convert('RGB')
+    if img.width > max_width:
+        ratio = max_width / img.width
+        img = img.resize((max_width, int(img.height * ratio)))
+    buf = BytesIO()
+    img.save(buf, format='JPEG', quality=quality)
+    return buf.getvalue()
+
+
 @api_view(['POST'])
-@permission_classes([AllowAny])  # ← YOLOv5 system calls this
+@permission_classes([AllowAny])  # protected by the X-Detector-Key header below
 def receive_detection(request):
-    expected = os.environ.get('DETECTION_API_KEY')
-    if not expected or request.headers.get('X-API-Key') != expected:
-        return Response({'error': 'Unauthorized.'}, status=status.HTTP_401_UNAUTHORIZED)
-    
-    plate_number = request.data.get('plate_number', '')
+    key = request.META.get('HTTP_X_DETECTOR_KEY', '')
+    if not settings.DETECTOR_API_KEY or key != settings.DETECTOR_API_KEY:
+        return Response({'error': 'Invalid detector key.'},
+                        status=status.HTTP_401_UNAUTHORIZED)
+
+    plate_number = str(request.data.get('plate_number', '')).strip().upper()
     location = request.data.get('location', '')
     confidence_score = request.data.get('confidence_score', 0.0)
-    violation_type = request.data.get('violation_type', 'Illegal Parking')
 
     if not plate_number:
-        return Response(
-            {'error': 'Plate number required.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        return Response({'error': 'Plate number required.'},
+                        status=status.HTTP_400_BAD_REQUEST)
 
-    # Save detection to database
     detection = Detection.objects.create(
-        plate_number=plate_number.upper(),
+        plate_number=plate_number,
         location=location,
         confidence_score=confidence_score,
         status='pending',
     )
 
-    print(f'[DETECTION] New: {plate_number} at {location} ({confidence_score}%)')
+    # The image is optional: if it fails, the detection text is still saved
+    has_image = False
+    image_file = request.FILES.get('image')
+    if image_file:
+        try:
+            DetectionImage.objects.create(
+                detection=detection, data=compress_image(image_file)
+            )
+            has_image = True
+        except Exception as e:
+            print(f'[DETECTION] Image skipped: {e}')
 
     return Response({
         'id': detection.id,
         'plate_number': detection.plate_number,
-        'location': detection.location,
-        'confidence_score': str(detection.confidence_score),
         'status': detection.status,
-        'detected_at':timezone.localtime(detection.detected_at).strftime('%Y-%m-%d %H:%M:%S'),
+        'has_image': has_image,
         'message': 'Detection received successfully.',
     }, status=status.HTTP_201_CREATED)
-
 
 # ─────────────────────────────────────────
 # GET PENDING DETECTIONS (Flutter polls this)
@@ -262,11 +280,21 @@ def get_pending_detections(request):
             'location': d.location,
             'confidence_score': str(d.confidence_score),
             'status': d.status,
+            'has_image': DetectionImage.objects.filter(detection=d).exists(),
             'detected_at': timezone.localtime(d.detected_at).strftime('%b %d, %Y %I:%M %p'),
         })
 
     return Response(data, status=status.HTTP_200_OK)
 
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_detection_image(request, detection_id):
+    try:
+        img = DetectionImage.objects.get(detection_id=detection_id)
+    except DetectionImage.DoesNotExist:
+        return Response({'error': 'No image.'}, status=status.HTTP_404_NOT_FOUND)
+    return HttpResponse(bytes(img.data), content_type=img.content_type)
 
 # ─────────────────────────────────────────
 # UPDATE DETECTION STATUS (confirm/decline)

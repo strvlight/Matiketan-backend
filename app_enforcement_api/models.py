@@ -19,7 +19,7 @@ class Enforcer(models.Model):
 
 
 # ---------------------------
-# VIOLATION TYPE (e.g. No Parking, Obstruction)
+# VIOLATION TYPE (e.g. No Parking, Obstruction) 
 # ---------------------------
 class Violation(models.Model):
     name = models.CharField(max_length=100)
@@ -76,6 +76,14 @@ class Detection(models.Model):
 
     def __str__(self):
         return f"Detection - {self.plate_number} ({self.status})"
+    
+class DetectionImage(models.Model):
+    detection = models.OneToOneField(
+        Detection, on_delete=models.CASCADE, related_name='image'
+    )
+    data = models.BinaryField()
+    content_type = models.CharField(max_length=50, default='image/jpeg')
+    created_at = models.DateTimeField(auto_now_add=True)
 
 # Create your models here.
 

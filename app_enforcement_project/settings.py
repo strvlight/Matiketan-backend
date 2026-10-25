@@ -9,6 +9,8 @@ load_dotenv(BASE_DIR / '.env')
 
 TEXTLINK_API_KEY = os.getenv('TEXTLINK_API_KEY')
 
+DETECTOR_API_KEY = os.getenv('DETECTOR_API_KEY', '')
+
 # Media files (uploads)
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
