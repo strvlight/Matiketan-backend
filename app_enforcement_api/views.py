@@ -371,6 +371,42 @@ def update_detection(request, detection_id):
 
 
 # ─────────────────────────────────────────
+# DECLINED HISTORY (this enforcer's declines)
+# ─────────────────────────────────────────
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_declined_detections(request):
+    enforcer = Enforcer.objects.filter(user=request.user).first()
+    qs = Detection.objects.filter(status='declined')
+    if enforcer and not request.user.is_staff:
+        qs = qs.filter(reviewed_by=enforcer)
+    qs = qs.order_by('-declined_at', '-detected_at')[:100]
+
+    data = []
+    for d in qs:
+        when = d.declined_at or d.detected_at
+        data.append({
+            'id': d.id,
+            'plate_number': d.plate_number,
+            'location': d.location,
+            'confidence_score': str(d.confidence_score),
+            'decline_reason': d.decline_reason,
+            'decline_notes': d.decline_notes,
+            'has_evidence': d.decline_evidence.exists(),
+            'declined_at': timezone.localtime(when).strftime('%b %d, %Y %I:%M %p'),
+        })
+    return Response(data, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_decline_evidence(request, detection_id):
+    ev = DeclineEvidence.objects.filter(detection_id=detection_id).first()
+    if not ev:
+        return Response({'error': 'No evidence.'}, status=status.HTTP_404_NOT_FOUND)
+    return HttpResponse(bytes(ev.data), content_type=ev.content_type)
+
+# ─────────────────────────────────────────
 # FINES (default amounts; editable in Django Admin > Violations)
 # ─────────────────────────────────────────
 FINE_SCHEDULE = {

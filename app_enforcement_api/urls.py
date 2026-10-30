@@ -8,6 +8,7 @@ from .views import (
     lookup_plate, upload_evidence,
     receive_detection, get_pending_detections,
     update_detection,
+    get_declined_detections, get_decline_evidence,
     admin_login, admin_search_tickets, admin_mark_paid,
     admin_create_enforcer
 )
@@ -34,4 +35,6 @@ urlpatterns = [
     path('admin/tickets/<int:ticket_id>/pay/', admin_mark_paid, name='admin_mark_paid'),
     path('admin/enforcers/create/', admin_create_enforcer, name='admin_create_enforcer'),
     path('detections/<int:detection_id>/image/', get_detection_image, name='detection_image'),
+        path('detections/declined/', get_declined_detections, name='declined_detections'),
+    path('detections/<int:detection_id>/evidence/', get_decline_evidence, name='decline_evidence'),
 ] + router.urls
