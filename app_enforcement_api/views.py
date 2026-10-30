@@ -17,7 +17,7 @@ import random, string
 from io import BytesIO
 from PIL import Image
 
-from .models import Enforcer, Evidence, Violation, Ticket, Detection, DetectionImage, VehicleRegistration
+from .models import Enforcer, Evidence, Violation, Ticket, Detection, DetectionImage, DeclineEvidence, VehicleRegistration
 from .serializer import (
     EnforcerSerializer, ViolationSerializer,
     TicketSerializer, DetectionSerializer
@@ -301,6 +301,7 @@ def get_detection_image(request, detection_id):
 # ─────────────────────────────────────────
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated])
+@parser_classes([MultiPartParser, FormParser, JSONParser])
 def update_detection(request, detection_id):
     try:
         detection = Detection.objects.get(id=detection_id)
@@ -313,7 +314,23 @@ def update_detection(request, detection_id):
     new_status = request.data.get('status', '')
     if new_status in ['confirmed', 'declined']:
         detection.status = new_status
+        detection.reviewed_by = Enforcer.objects.filter(user=request.user).first()
+
+        if new_status == 'declined':
+            detection.decline_reason = str(request.data.get('reason', '')).strip()
+            detection.decline_notes = str(request.data.get('notes', '')).strip()
+            detection.declined_at = timezone.now()
+
         detection.save()
+
+        if new_status == 'declined':
+            for f in request.FILES.getlist('evidence'):
+                try:
+                    DeclineEvidence.objects.create(
+                        detection=detection, data=compress_image(f)
+                    )
+                except Exception as e:
+                    print(f'[DECLINE] Evidence skipped: {e}')
 
     return Response({
         'id': detection.id,

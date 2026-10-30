@@ -73,6 +73,9 @@ class Detection(models.Model):
     detected_at = models.DateTimeField(auto_now_add=True)
     reviewed_by = models.ForeignKey(Enforcer, on_delete=models.SET_NULL, null=True, blank=True)
     linked_ticket = models.ForeignKey(Ticket, on_delete=models.SET_NULL, null=True, blank=True)
+    decline_reason = models.CharField(max_length=255, blank=True, default='')
+    decline_notes = models.TextField(blank=True, default='')
+    declined_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return f"Detection - {self.plate_number} ({self.status})"
@@ -80,6 +83,14 @@ class Detection(models.Model):
 class DetectionImage(models.Model):
     detection = models.OneToOneField(
         Detection, on_delete=models.CASCADE, related_name='image'
+    )
+    data = models.BinaryField()
+    content_type = models.CharField(max_length=50, default='image/jpeg')
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+class DeclineEvidence(models.Model):
+    detection = models.ForeignKey(
+        Detection, on_delete=models.CASCADE, related_name='decline_evidence'
     )
     data = models.BinaryField()
     content_type = models.CharField(max_length=50, default='image/jpeg')
