@@ -281,7 +281,7 @@ def get_pending_detections(request):
             'confidence_score': str(d.confidence_score),
             'status': d.status,
             'has_image': DetectionImage.objects.filter(detection=d).exists(),
-            'detected_at': timezone.localtime(d.detected_at).strftime('%b %d, %Y %I:%M %p'),
+            'detected_at': timezone.localtime(d.detected_at).isoformat,
         })
 
     return Response(data, status=status.HTTP_200_OK)

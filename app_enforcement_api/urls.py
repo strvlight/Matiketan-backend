@@ -2,7 +2,7 @@ from django.urls import path
 from rest_framework.routers import DefaultRouter
 from .views import (
     EnforcerViewSet, ViolationViewSet,
-    TicketViewSet, DetectionViewSet,
+    TicketViewSet, DetectionViewSet, get_detection_image,
     login_view, logout_view,
     submit_ticket, get_tickets,
     lookup_plate, upload_evidence,
@@ -33,4 +33,5 @@ urlpatterns = [
     path('admin/tickets/search/', admin_search_tickets, name='admin_search_tickets'),
     path('admin/tickets/<int:ticket_id>/pay/', admin_mark_paid, name='admin_mark_paid'),
     path('admin/enforcers/create/', admin_create_enforcer, name='admin_create_enforcer'),
+    path('detections/<int:detection_id>/image/', get_detection_image, name='detection_image'),
 ] + router.urls
