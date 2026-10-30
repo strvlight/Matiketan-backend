@@ -4,6 +4,7 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
+from datetime import timedelta
 from django.utils import timezone
 from django.db.models import Q, Value
 from django.db.models.functions import Replace
@@ -232,11 +233,40 @@ def receive_detection(request):
         return Response({'error': 'Plate number required.'},
                         status=status.HTTP_400_BAD_REQUEST)
 
+    now = timezone.now()
+    window = timedelta(minutes=settings.DUPLICATE_WINDOW_MINUTES)
+    limit = settings.PARKING_LIMIT_SECONDS
+
+    # Same plate seen recently? Update it instead of creating a new alert.
+    existing = Detection.objects.filter(
+        plate_number=plate_number,
+        status__in=['monitoring', 'pending'],
+        last_seen__gte=now - window,
+    ).order_by('-last_seen').first()
+
+    if existing:
+        existing.last_seen = now
+        existing.sighting_count += 1
+        parked_for = (now - existing.detected_at).total_seconds()
+        if existing.status == 'monitoring' and parked_for >= limit:
+            existing.status = 'pending'  # parked long enough -> violation
+        existing.save()
+        return Response({
+            'id': existing.id,
+            'plate_number': existing.plate_number,
+            'status': existing.status,
+            'duplicate': True,
+            'parked_seconds': int(parked_for),
+            'sighting_count': existing.sighting_count,
+            'message': 'Existing detection updated.',
+        }, status=status.HTTP_200_OK)
+
     detection = Detection.objects.create(
         plate_number=plate_number,
         location=location,
         confidence_score=confidence_score,
-        status='pending',
+        status='pending' if limit <= 0 else 'monitoring',
+        last_seen=now,
     )
 
     # The image is optional: if it fails, the detection text is still saved
@@ -256,6 +286,7 @@ def receive_detection(request):
         'plate_number': detection.plate_number,
         'status': detection.status,
         'has_image': has_image,
+        'duplicate': False,
         'message': 'Detection received successfully.',
     }, status=status.HTTP_201_CREATED)
 

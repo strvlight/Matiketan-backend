@@ -60,6 +60,7 @@ class Ticket(models.Model):
 # ---------------------------
 class Detection(models.Model):
     STATUS_CHOICES = [
+         ('monitoring', 'Monitoring'),
         ('pending', 'Pending Review'),
         ('confirmed', 'Confirmed'),
         ('declined', 'Declined (False Positive)'),
@@ -76,6 +77,8 @@ class Detection(models.Model):
     decline_reason = models.CharField(max_length=255, blank=True, default='')
     decline_notes = models.TextField(blank=True, default='')
     declined_at = models.DateTimeField(null=True, blank=True)
+    last_seen = models.DateTimeField(null=True, blank=True)
+    sighting_count = models.PositiveIntegerField(default=1)
 
     def __str__(self):
         return f"Detection - {self.plate_number} ({self.status})"

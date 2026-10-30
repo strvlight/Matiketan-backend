@@ -23,7 +23,8 @@ DEBUG = os.getenv('DEBUG', 'False') == 'True'
 
 ALLOWED_HOSTS = ['*']
 
-
+PARKING_LIMIT_SECONDS = int(os.getenv('PARKING_LIMIT_SECONDS', '0'))
+DUPLICATE_WINDOW_MINUTES = int(os.getenv('DUPLICATE_WINDOW_MINUTES', '10'))
 
 # Application definition
 
