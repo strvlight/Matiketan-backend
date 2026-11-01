@@ -284,8 +284,9 @@ def receive_detection(request):
             has_image = True
         except Exception as e:
             print(f'[DETECTION] Image skipped: {e}')
-        if detection.status == 'pending':
-            notify_detection(detection)
+
+    if detection.status == 'pending':
+        notify_detection(detection)
 
     return Response({
         'id': detection.id,
