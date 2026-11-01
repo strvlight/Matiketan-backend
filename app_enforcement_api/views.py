@@ -13,12 +13,13 @@ from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.http import HttpResponse
 from django.conf import settings
+from .push import notify_detection
 import os
 import random, string
 from io import BytesIO
 from PIL import Image
 
-from .models import Enforcer, Evidence, Violation, Ticket, Detection, DetectionImage, DeclineEvidence, VehicleRegistration
+from .models import Enforcer, Evidence, Violation, Ticket, Detection, DetectionImage, DeclineEvidence, VehicleRegistration, DeviceToken
 from .serializer import (
     EnforcerSerializer, ViolationSerializer,
     TicketSerializer, DetectionSerializer
@@ -248,9 +249,12 @@ def receive_detection(request):
         existing.last_seen = now
         existing.sighting_count += 1
         parked_for = (now - existing.detected_at).total_seconds()
-        if existing.status == 'monitoring' and parked_for >= limit:
-            existing.status = 'pending'  # parked long enough -> violation
+        became_pending = existing.status == 'monitoring' and parked_for >= limit
+        if became_pending:
+            existing.status = 'pending'
         existing.save()
+        if became_pending:
+            notify_detection(existing)
         return Response({
             'id': existing.id,
             'plate_number': existing.plate_number,
@@ -280,6 +284,8 @@ def receive_detection(request):
             has_image = True
         except Exception as e:
             print(f'[DETECTION] Image skipped: {e}')
+        if detection.status == 'pending':
+            notify_detection(detection)
 
     return Response({
         'id': detection.id,
@@ -368,6 +374,19 @@ def update_detection(request, detection_id):
         'status': detection.status,
         'message': f'Detection {new_status} successfully.',
     }, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def register_device(request):
+    token = str(request.data.get('token', '')).strip()
+    if not token:
+        return Response({'error': 'Token required.'},
+                        status=status.HTTP_400_BAD_REQUEST)
+    DeviceToken.objects.update_or_create(
+        token=token, defaults={'user': request.user}
+    )
+    return Response({'ok': True}, status=status.HTTP_200_OK)
 
 
 # ─────────────────────────────────────────

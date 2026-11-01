@@ -113,6 +113,14 @@ class VehicleRegistration(models.Model):
     def __str__(self):
         return self.plate_number
     
+
+class DeviceToken(models.Model):
+    user = models.ForeignKey(
+        'auth.User', on_delete=models.CASCADE, related_name='device_tokens'
+    )
+    token = models.CharField(max_length=300, unique=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
     
 ## ─────────────────────────────────────────
 # EVIDENCE (photos/videos per ticket)
