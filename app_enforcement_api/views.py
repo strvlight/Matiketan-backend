@@ -30,10 +30,10 @@ from .serializer import (
 # HELPER: Generate transaction code
 # ─────────────────────────────────────────
 def generate_tx_code():
-    from datetime import datetime
-    date_str = datetime.now().strftime('%Y%m%d')
-    rand = ''.join(random.choices(string.digits, k=4))
-    return f'TX-{date_str}-{rand}'
+    while True:
+        code = 'TX-' + ''.join(random.choices(string.digits, k=5))
+        if not Ticket.objects.filter(transaction_code=code).exists():
+            return code
 
 
 # ─────────────────────────────────────────
@@ -341,34 +341,44 @@ def get_detection_image(request, detection_id):
 @permission_classes([IsAuthenticated])
 @parser_classes([MultiPartParser, FormParser, JSONParser])
 def update_detection(request, detection_id):
-    try:
-        detection = Detection.objects.get(id=detection_id)
-    except Detection.DoesNotExist:
-        return Response(
-            {'error': 'Detection not found.'},
-            status=status.HTTP_404_NOT_FOUND
-        )
-
     new_status = request.data.get('status', '')
-    if new_status in ['confirmed', 'declined']:
-        detection.status = new_status
-        detection.reviewed_by = Enforcer.objects.filter(user=request.user).first()
 
-        if new_status == 'declined':
-            detection.decline_reason = str(request.data.get('reason', '')).strip()
-            detection.decline_notes = str(request.data.get('notes', '')).strip()
-            detection.declined_at = timezone.now()
+    with transaction.atomic():
+        try:
+            # lock the row so two officers can't act on it at the same time
+            detection = Detection.objects.select_for_update().get(id=detection_id)
+        except Detection.DoesNotExist:
+            return Response({'error': 'Detection not found.'},
+                            status=status.HTTP_404_NOT_FOUND)
 
-        detection.save()
+        if new_status in ['confirmed', 'declined']:
+            # only a pending detection can be confirmed/declined
+            if detection.status != 'pending':
+                who = detection.reviewed_by.full_name if detection.reviewed_by else 'another officer'
+                return Response(
+                    {'error': f'Already {detection.status} by {who}.',
+                     'status': detection.status},
+                    status=status.HTTP_409_CONFLICT,
+                )
 
-        if new_status == 'declined':
-            for f in request.FILES.getlist('evidence'):
-                try:
-                    DeclineEvidence.objects.create(
-                        detection=detection, data=compress_image(f)
-                    )
-                except Exception as e:
-                    print(f'[DECLINE] Evidence skipped: {e}')
+            detection.status = new_status
+            detection.reviewed_by = Enforcer.objects.filter(user=request.user).first()
+
+            if new_status == 'declined':
+                detection.decline_reason = str(request.data.get('reason', '')).strip()
+                detection.decline_notes = str(request.data.get('notes', '')).strip()
+                detection.declined_at = timezone.now()
+
+            detection.save()
+
+            if new_status == 'declined':
+                for f in request.FILES.getlist('evidence'):
+                    try:
+                        DeclineEvidence.objects.create(
+                            detection=detection, data=compress_image(f)
+                        )
+                    except Exception as e:
+                        print(f'[DECLINE] Evidence skipped: {e}')
 
     return Response({
         'id': detection.id,
