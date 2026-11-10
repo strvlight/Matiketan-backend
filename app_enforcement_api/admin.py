@@ -42,15 +42,23 @@ class DeclineEvidenceInline(admin.TabularInline):
 class DetectionAdmin(admin.ModelAdmin):
     list_display = (
         'plate_number', 'status', 'location', 'confidence_score',
-        'detected_at', 'reviewed_by', 'decline_reason', 'declined_at',
+        'detected_at', 'claimed_by', 'reviewed_by', 'linked_ticket',
+        'decline_reason', 'declined_at', 'sighting_count',
     )
-    list_filter = ('status', 'detected_at', 'declined_at')
-    search_fields = ('plate_number', 'location', 'decline_reason')
+    list_filter = ('status', 'detected_at', 'declined_at', 'reviewed_by', 'claimed_by')
+    search_fields = ('plate_number', 'location', 'decline_reason', 'decline_notes')
     date_hierarchy = 'detected_at'
-    readonly_fields = ('detection_photo', 'declined_at')
+    readonly_fields = (
+        'detection_photo', 'declined_at', 'claimed_at', 'last_seen',
+    )
     inlines = [DeclineEvidenceInline]
+    actions = ['show_declined_hint']
 
     def detection_photo(self, obj):
         img = DetectionImage.objects.filter(detection=obj).first()
         return _img_tag(img.data, img.content_type) if img else '-'
     detection_photo.short_description = 'Detection photo'
+
+    @admin.action(description='(Tip) Use the Status filter on the right')
+    def show_declined_hint(self, request, queryset):
+        pass
