@@ -1,12 +1,13 @@
 import base64
+from django import forms
 from django.contrib import admin
-from django.forms import forms
 from django.utils.html import format_html
-from .views import compress_image
 from .models import (
     Enforcer, Violation, Ticket, Detection, DetectionImage,
-    DeclineEvidence, VehicleRegistration, Evidence, DeclinedDetection, InProgressDetection, ConfirmedDetection 
+    DeclineEvidence, VehicleRegistration, Evidence,
+    DeclinedDetection, ConfirmedDetection, InProgressDetection,
 )
+from .views import compress_image
 
 class EnforcerAdminForm(forms.ModelForm):
     photo = forms.ImageField(required=False, label='Profile photo (upload)')
@@ -15,8 +16,6 @@ class EnforcerAdminForm(forms.ModelForm):
     class Meta:
         model = Enforcer
         exclude = ('profile_photo',)
-
-
 @admin.register(Enforcer)
 class EnforcerAdmin(admin.ModelAdmin):
     form = EnforcerAdminForm

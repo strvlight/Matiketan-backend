@@ -794,7 +794,7 @@ def upload_evidence(request, ticket_id):
 # VIEWSETS (CRUD)
 # ─────────────────────────────────────────
 class EnforcerViewSet(viewsets.ModelViewSet):
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
     permission_classes = [IsAdminUser]
     queryset = Enforcer.objects.all()
     serializer_class = EnforcerSerializer
