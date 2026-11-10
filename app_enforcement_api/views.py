@@ -158,6 +158,7 @@ def login_view(request):
             'badge_id': enforcer.badge_id,
             'full_name': enforcer.full_name,
             'is_on_duty': enforcer.is_on_duty,
+            'assigned_area': enforcer.assigned_area,
         }
     }, status=status.HTTP_200_OK)
 
@@ -399,6 +400,46 @@ def register_device(request):
     )
     return Response({'ok': True}, status=status.HTTP_200_OK)
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_profile(request):
+    e = Enforcer.objects.filter(user=request.user).first()
+    if not e:
+        return Response({'error': 'No enforcer.'}, status=status.HTTP_404_NOT_FOUND)
+    return Response({
+        'id': e.id,
+        'full_name': e.full_name,
+        'badge_id': e.badge_id,
+        'assigned_area': e.assigned_area,
+        'has_photo': bool(e.photo_data),
+    })
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+@parser_classes([MultiPartParser, FormParser])
+def profile_photo(request):
+    e = Enforcer.objects.filter(user=request.user).first()
+    if not e:
+        return Response({'error': 'No enforcer.'}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'POST':
+        f = request.FILES.get('photo')
+        if not f:
+            return Response({'error': 'Photo required.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        try:
+            e.photo_data = compress_image(f, max_width=400, quality=80)
+            e.photo_type = 'image/jpeg'
+            e.save()
+        except Exception as ex:
+            return Response({'error': f'Invalid image: {ex}'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        return Response({'ok': True})
+
+    if not e.photo_data:
+        return Response({'error': 'No photo.'}, status=status.HTTP_404_NOT_FOUND)
+    return HttpResponse(bytes(e.photo_data), content_type=e.photo_type)
 
 # ─────────────────────────────────────────
 # DECLINED HISTORY (this enforcer's declines)

@@ -13,6 +13,10 @@ class Enforcer(models.Model):
     date_joined = models.DateTimeField(auto_now_add=True)
     
     profile_photo = models.ImageField(upload_to='enforcer_profiles/', blank=True, null=True)
+    
+    assigned_area = models.CharField(max_length=255, blank=True, default='')
+    photo_data = models.BinaryField(null=True, blank=True)
+    photo_type = models.CharField(max_length=50, default='image/jpeg')
 
     def __str__(self):
         return f"{self.full_name} ({self.badge_id})"
@@ -60,8 +64,9 @@ class Ticket(models.Model):
 # ---------------------------
 class Detection(models.Model):
     STATUS_CHOICES = [
-         ('monitoring', 'Monitoring'),
+        ('monitoring', 'Monitoring'),
         ('pending', 'Pending Review'),
+        ('in_progress', 'In Progress'),
         ('confirmed', 'Confirmed'),
         ('declined', 'Declined (False Positive)'),
     ]
@@ -70,7 +75,7 @@ class Detection(models.Model):
     location = models.CharField(max_length=255)
     confidence_score = models.DecimalField(max_digits=5, decimal_places=2)  # e.g. 92.50%
     detected_photo = models.ImageField(upload_to='detections/', blank=True, null=True)
-    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     detected_at = models.DateTimeField(auto_now_add=True)
     reviewed_by = models.ForeignKey(Enforcer, on_delete=models.SET_NULL, null=True, blank=True)
     linked_ticket = models.ForeignKey(Ticket, on_delete=models.SET_NULL, null=True, blank=True)
@@ -79,6 +84,11 @@ class Detection(models.Model):
     declined_at = models.DateTimeField(null=True, blank=True)
     last_seen = models.DateTimeField(null=True, blank=True)
     sighting_count = models.PositiveIntegerField(default=1)
+    claimed_by = models.ForeignKey(
+        Enforcer, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='claimed_detections',
+    )
+    claimed_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return f"Detection - {self.plate_number} ({self.status})"

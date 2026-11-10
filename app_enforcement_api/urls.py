@@ -2,8 +2,8 @@ from django.urls import path
 from rest_framework.routers import DefaultRouter
 from .views import (
     EnforcerViewSet, ViolationViewSet,
-    TicketViewSet, DetectionViewSet, get_detection_image,
-    login_view, logout_view, register_device,
+    TicketViewSet, DetectionViewSet, get_detection_image, get_profile,
+    login_view, logout_view, profile_photo, register_device,
     submit_ticket, get_tickets,
     lookup_plate, upload_evidence,
     receive_detection, get_pending_detections,
@@ -38,4 +38,6 @@ urlpatterns = [
         path('detections/declined/', get_declined_detections, name='declined_detections'),
     path('detections/<int:detection_id>/evidence/', get_decline_evidence, name='decline_evidence'),
     path('devices/register/', register_device, name='register_device'),
+    path('profile/', get_profile, name='profile'),
+    path('profile/photo/', profile_photo, name='profile_photo'),
 ] + router.urls
