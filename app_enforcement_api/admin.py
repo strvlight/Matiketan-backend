@@ -1,12 +1,45 @@
 import base64
 from django.contrib import admin
+from django.forms import forms
 from django.utils.html import format_html
+from .views import compress_image
 from .models import (
     Enforcer, Violation, Ticket, Detection, DetectionImage,
-    DeclineEvidence, VehicleRegistration, Evidence,
+    DeclineEvidence, VehicleRegistration, Evidence, DeclinedDetection, InProgressDetection, ConfirmedDetection 
 )
 
-admin.site.register(Enforcer)
+class EnforcerAdminForm(forms.ModelForm):
+    photo = forms.ImageField(required=False, label='Profile photo (upload)')
+    remove_photo = forms.BooleanField(required=False, label='Remove current photo')
+
+    class Meta:
+        model = Enforcer
+        exclude = ('profile_photo',)
+
+
+@admin.register(Enforcer)
+class EnforcerAdmin(admin.ModelAdmin):
+    form = EnforcerAdminForm
+    list_display = ('full_name', 'badge_id', 'assigned_area', 'is_on_duty')
+    search_fields = ('full_name', 'badge_id', 'assigned_area')
+    readonly_fields = ('photo_preview',)
+
+    def photo_preview(self, obj):
+        if not obj or not obj.photo_data:
+            return '-'
+        return _img_tag(obj.photo_data, obj.photo_type, width=160)
+    photo_preview.short_description = 'Current photo'
+
+    def save_model(self, request, obj, form, change):
+        f = form.cleaned_data.get('photo')
+        if f:
+            obj.photo_data = compress_image(f, max_width=400, quality=80)
+            obj.photo_type = 'image/jpeg'
+        elif form.cleaned_data.get('remove_photo'):
+            obj.photo_data = None
+        super().save_model(request, obj, form, change)
+        
+        
 admin.site.register(Violation)
 admin.site.register(Ticket)
 admin.site.register(VehicleRegistration)
@@ -38,27 +71,44 @@ class DeclineEvidenceInline(admin.TabularInline):
         return False
 
 
-@admin.register(Detection)
-class DetectionAdmin(admin.ModelAdmin):
+class DetectionAdminBase(admin.ModelAdmin):
     list_display = (
         'plate_number', 'status', 'location', 'confidence_score',
         'detected_at', 'claimed_by', 'reviewed_by', 'linked_ticket',
-        'decline_reason', 'declined_at', 'sighting_count',
+        'decline_reason', 'declined_at',
     )
-    list_filter = ('status', 'detected_at', 'declined_at', 'reviewed_by', 'claimed_by')
+    list_filter = ('detected_at', 'reviewed_by', 'claimed_by')
     search_fields = ('plate_number', 'location', 'decline_reason', 'decline_notes')
     date_hierarchy = 'detected_at'
-    readonly_fields = (
-        'detection_photo', 'declined_at', 'claimed_at', 'last_seen',
-    )
+    readonly_fields = ('detection_photo', 'declined_at', 'claimed_at', 'last_seen')
     inlines = [DeclineEvidenceInline]
-    actions = ['show_declined_hint']
+    status_filter = None
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return qs.filter(status=self.status_filter) if self.status_filter else qs
 
     def detection_photo(self, obj):
         img = DetectionImage.objects.filter(detection=obj).first()
         return _img_tag(img.data, img.content_type) if img else '-'
     detection_photo.short_description = 'Detection photo'
 
-    @admin.action(description='(Tip) Use the Status filter on the right')
-    def show_declined_hint(self, request, queryset):
-        pass
+
+@admin.register(Detection)
+class DetectionAdmin(DetectionAdminBase):
+    list_filter = ('status',) + DetectionAdminBase.list_filter
+
+
+@admin.register(DeclinedDetection)
+class DeclinedDetectionAdmin(DetectionAdminBase):
+    status_filter = 'declined'
+
+
+@admin.register(ConfirmedDetection)
+class ConfirmedDetectionAdmin(DetectionAdminBase):
+    status_filter = 'confirmed'
+
+
+@admin.register(InProgressDetection)
+class InProgressDetectionAdmin(DetectionAdminBase):
+    status_filter = 'in_progress'

@@ -93,6 +93,24 @@ class Detection(models.Model):
     def __str__(self):
         return f"Detection - {self.plate_number} ({self.status})"
     
+class DeclinedDetection(Detection):
+    class Meta:
+        proxy = True
+        verbose_name = 'Declined detection'
+        verbose_name_plural = 'Declined detections'
+
+class ConfirmedDetection(Detection):
+    class Meta:
+        proxy = True
+        verbose_name = 'Confirmed detection'
+        verbose_name_plural = 'Confirmed detections'
+
+class InProgressDetection(Detection):
+    class Meta:
+        proxy = True
+        verbose_name = 'Claimed detection (in progress)'
+        verbose_name_plural = 'Claimed detections (in progress)'    
+    
 class DetectionImage(models.Model):
     detection = models.OneToOneField(
         Detection, on_delete=models.CASCADE, related_name='image'
