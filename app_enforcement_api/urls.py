@@ -8,7 +8,7 @@ from .views import (
     lookup_plate, upload_evidence,
     receive_detection, get_pending_detections,
     update_detection,
-    get_declined_detections, get_decline_evidence,
+    get_declined_detections, get_decline_evidence, get_declined_detail,
     admin_login, admin_search_tickets, admin_mark_paid,
     admin_create_enforcer, admin_enforcer_photo
 )
@@ -38,6 +38,7 @@ urlpatterns = [
     path('detections/<int:detection_id>/image/', get_detection_image, name='detection_image'),
     path('detections/declined/', get_declined_detections, name='declined_detections'),
     path('detections/<int:detection_id>/evidence/', get_decline_evidence, name='decline_evidence'),
+    path('detections/<int:detection_id>/declined-detail/', get_declined_detail, name='declined_detail'),
     path('devices/register/', register_device, name='register_device'),
     path('profile/', get_profile, name='profile'),
     path('profile/photo/', profile_photo, name='profile_photo'),
