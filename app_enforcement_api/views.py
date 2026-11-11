@@ -17,6 +17,7 @@ from django.conf import settings
 from .push import notify_detection
 import os
 import re
+import base64
 import random, string
 from io import BytesIO
 from PIL import Image
@@ -450,7 +451,7 @@ def profile_photo(request):
 @permission_classes([IsAuthenticated])
 def get_declined_detections(request):
     enforcer = Enforcer.objects.filter(user=request.user).first()
-    qs = Detection.objects.filter(status='declined')
+    qs = Detection.objects.filter(status='declined').select_related('reviewed_by')
     if enforcer and not request.user.is_staff:
         qs = qs.filter(reviewed_by=enforcer)
     qs = qs.order_by('-declined_at', '-detected_at')[:100]
@@ -467,6 +468,8 @@ def get_declined_detections(request):
             'decline_notes': d.decline_notes,
             'has_evidence': d.decline_evidence.exists(),
             'declined_at': timezone.localtime(when).strftime('%b %d, %Y %I:%M %p'),
+            'declined_by': d.reviewed_by.full_name if d.reviewed_by else None,
+            'declined_by_badge': d.reviewed_by.badge_id if d.reviewed_by else None,
         })
     return Response(data, status=status.HTTP_200_OK)
 
@@ -478,6 +481,28 @@ def get_decline_evidence(request, detection_id):
     if not ev:
         return Response({'error': 'No evidence.'}, status=status.HTTP_404_NOT_FOUND)
     return HttpResponse(bytes(ev.data), content_type=ev.content_type)
+
+
+def _data_url(data, ctype):
+    return f"data:{ctype or 'image/jpeg'};base64," + base64.b64encode(bytes(data)).decode()
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_declined_detail(request, detection_id):
+    try:
+        d = Detection.objects.get(id=detection_id)
+    except Detection.DoesNotExist:
+        return Response({'error': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    images = []
+    di = DetectionImage.objects.filter(detection=d).first()
+    if di:
+        images.append(_data_url(di.data, di.content_type))
+    for ev in d.decline_evidence.all().order_by('id'):
+        images.append(_data_url(ev.data, ev.content_type))
+
+    return Response({'id': d.id, 'images': images})
 
 # ─────────────────────────────────────────
 # FINES (default amounts; editable in Django Admin > Violations)
