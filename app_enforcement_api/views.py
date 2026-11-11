@@ -16,6 +16,7 @@ from django.http import HttpResponse
 from django.conf import settings
 from .push import notify_detection
 import os
+import re
 import random, string
 from io import BytesIO
 from PIL import Image
@@ -697,13 +698,18 @@ def admin_search_tickets(request):
     return Response([ticket_to_dict(t, request) for t in tickets[:100]])
 
 
+# Receipt numbers are copied from the official receipt: letters, digits, - and /
+RECEIPT_PATTERN = re.compile(r'^[A-Z0-9][A-Z0-9\-/]{2,29}$')
+
+
 # ─────────────────────────────────────────
 # ADMIN: mark a ticket as paid (with manual payment details)
 # ─────────────────────────────────────────
 @api_view(['POST'])
 @permission_classes([IsAdminUser])
 def admin_mark_paid(request, ticket_id):
-    receipt_number = str(request.data.get('receipt_number') or '').strip()
+    # Normalize so 'or-001 ' and 'OR-001' count as the same receipt number
+    receipt_number = re.sub(r'\s+', '', str(request.data.get('receipt_number') or '')).upper()
     owner_name = str(request.data.get('owner_name') or '').strip()
     payment_method = str(request.data.get('payment_method') or '').strip() or 'Cash'
     remarks = str(request.data.get('remarks') or '').strip()
@@ -711,6 +717,10 @@ def admin_mark_paid(request, ticket_id):
     if not receipt_number:
         return Response({'error': 'Receipt number is required.'},
                         status=status.HTTP_400_BAD_REQUEST)
+    if not RECEIPT_PATTERN.match(receipt_number):
+        return Response(
+            {'error': 'Receipt number must be 3-30 characters: letters, numbers, - or / only.'},
+            status=status.HTTP_400_BAD_REQUEST)
     if not owner_name:
         return Response({'error': "Vehicle owner's name is required."},
                         status=status.HTTP_400_BAD_REQUEST)
