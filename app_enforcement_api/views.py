@@ -766,6 +766,31 @@ def admin_create_enforcer(request):
     }, status=status.HTTP_201_CREATED)
 
 
+# ─────────────────────────────────────────
+# ADMIN: upload an enforcer's profile photo (saved in the DB, same as mobile)
+# ─────────────────────────────────────────
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+@parser_classes([MultiPartParser, FormParser])
+def admin_enforcer_photo(request, enforcer_id):
+    try:
+        e = Enforcer.objects.get(id=enforcer_id)
+    except Enforcer.DoesNotExist:
+        return Response({'error': 'Enforcer not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    f = request.FILES.get('photo')
+    if not f:
+        return Response({'error': 'Photo required.'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        e.photo_data = compress_image(f, max_width=400, quality=80)
+        e.photo_type = 'image/jpeg'
+        e.save()
+    except Exception as ex:
+        return Response({'error': f'Invalid image: {ex}'}, status=status.HTTP_400_BAD_REQUEST)
+
+    return Response(EnforcerSerializer(e, context={'request': request}).data)
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def upload_evidence(request, ticket_id):
