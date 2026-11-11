@@ -724,6 +724,7 @@ def admin_create_enforcer(request):
     full_name = str(request.data.get('full_name', '')).strip()
     password = str(request.data.get('password', ''))
     contact_number = str(request.data.get('contact_number', '')).strip()
+    assigned_area = str(request.data.get('assigned_area', '')).strip()
 
     if not badge_id or not full_name or not password:
         return Response(
@@ -751,6 +752,7 @@ def admin_create_enforcer(request):
             badge_id=badge_id,
             full_name=full_name,
             contact_number=contact_number,
+            assigned_area=assigned_area,
             is_on_duty=True,
         )
 
@@ -759,6 +761,7 @@ def admin_create_enforcer(request):
         'badge_id': enforcer.badge_id,
         'full_name': enforcer.full_name,
         'contact_number': enforcer.contact_number,
+        'assigned_area': enforcer.assigned_area,
         'is_on_duty': enforcer.is_on_duty,
     }, status=status.HTTP_201_CREATED)
 
