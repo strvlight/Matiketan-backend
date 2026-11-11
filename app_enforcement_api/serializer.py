@@ -9,7 +9,7 @@ class EnforcerSerializer(serializers.ModelSerializer):
         model = Enforcer
         fields = [
             'id', 'badge_id', 'full_name', 'contact_number',
-            'is_on_duty', 'profile_photo', 'profile_photo_url',
+            'is_on_duty', 'assigned_area', 'profile_photo', 'profile_photo_url',
         ]
         extra_kwargs = {
             'profile_photo': {'write_only': True, 'required': False},
