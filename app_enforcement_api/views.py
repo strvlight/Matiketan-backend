@@ -5,10 +5,11 @@ from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 from datetime import timedelta
+from decimal import Decimal, InvalidOperation
 from django.utils import timezone
 from django.db.models import Q, Value
 from django.db.models.functions import Replace
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.http import HttpResponse
@@ -664,6 +665,11 @@ def ticket_to_dict(t, request=None):
             timezone.localtime(t.date_paid).strftime('%b %d, %Y %I:%M %p')
             if t.date_paid else None
         ),
+        'receipt_number': t.receipt_number,
+        'owner_name': t.owner_name,
+        'amount_paid': str(t.amount_paid) if t.amount_paid is not None else None,
+        'payment_method': t.payment_method,
+        'remarks': t.remarks,
         'evidence': evidence,
     }
 
@@ -692,11 +698,30 @@ def admin_search_tickets(request):
 
 
 # ─────────────────────────────────────────
-# ADMIN: mark a ticket as paid
+# ADMIN: mark a ticket as paid (with manual payment details)
 # ─────────────────────────────────────────
 @api_view(['POST'])
 @permission_classes([IsAdminUser])
 def admin_mark_paid(request, ticket_id):
+    receipt_number = str(request.data.get('receipt_number') or '').strip()
+    owner_name = str(request.data.get('owner_name') or '').strip()
+    payment_method = str(request.data.get('payment_method') or '').strip() or 'Cash'
+    remarks = str(request.data.get('remarks') or '').strip()
+
+    if not receipt_number:
+        return Response({'error': 'Receipt number is required.'},
+                        status=status.HTTP_400_BAD_REQUEST)
+    if not owner_name:
+        return Response({'error': "Vehicle owner's name is required."},
+                        status=status.HTTP_400_BAD_REQUEST)
+    try:
+        amount_paid = Decimal(str(request.data.get('amount_paid')))
+        if amount_paid <= 0:
+            raise InvalidOperation
+    except (InvalidOperation, ValueError, TypeError):
+        return Response({'error': 'Enter a valid amount paid.'},
+                        status=status.HTTP_400_BAD_REQUEST)
+
     try:
         ticket = Ticket.objects.select_related('violation', 'enforcer').get(id=ticket_id)
     except Ticket.DoesNotExist:
@@ -708,9 +733,23 @@ def admin_mark_paid(request, ticket_id):
             status=status.HTTP_400_BAD_REQUEST
         )
 
+    if Ticket.objects.filter(receipt_number__iexact=receipt_number).exclude(id=ticket.id).exists():
+        return Response({'error': 'That receipt number is already used on another ticket.'},
+                        status=status.HTTP_400_BAD_REQUEST)
+
     ticket.status = 'paid'
     ticket.date_paid = timezone.now()
-    ticket.save()
+    ticket.receipt_number = receipt_number
+    ticket.owner_name = owner_name
+    ticket.amount_paid = amount_paid
+    ticket.payment_method = payment_method
+    ticket.remarks = remarks or None
+
+    try:
+        ticket.save()
+    except IntegrityError:
+        return Response({'error': 'That receipt number is already used on another ticket.'},
+                        status=status.HTTP_400_BAD_REQUEST)
 
     return Response(ticket_to_dict(ticket, request), status=status.HTTP_200_OK)
 
