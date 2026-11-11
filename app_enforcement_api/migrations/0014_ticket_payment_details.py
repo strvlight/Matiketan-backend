@@ -4,7 +4,8 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("app_enforcement_api", "0013_FULL_FILENAME_WITHOUT_.py"),
+        # Replace with the FULL name of your 0013 file, without ".py"
+        ("app_enforcement_api", "0013_confirmeddetection_REPLACE_WITH_FULL_NAME"),
     ]
 
     operations = [
