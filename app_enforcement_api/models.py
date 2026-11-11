@@ -53,6 +53,14 @@ class Ticket(models.Model):
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='unpaid')
     date_issued = models.DateTimeField(auto_now_add=True)
     date_paid = models.DateTimeField(null=True, blank=True) 
+
+    # Payment details (entered manually when marking as paid)
+    receipt_number = models.CharField(max_length=100, null=True, blank=True, unique=True)
+    owner_name = models.CharField(max_length=255, null=True, blank=True)
+    amount_paid = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    payment_method = models.CharField(max_length=50, null=True, blank=True)
+    remarks = models.TextField(null=True, blank=True)
+
     photo = models.ImageField(upload_to='ticket_photos/', blank=True, null=True)
 
     def __str__(self):
