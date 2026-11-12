@@ -61,6 +61,12 @@ class Ticket(models.Model):
     payment_method = models.CharField(max_length=50, null=True, blank=True)
     remarks = models.TextField(null=True, blank=True)
 
+    # Administrator who processed the settlement (audit trail)
+    processed_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='processed_tickets',
+    )
+
     photo = models.ImageField(upload_to='ticket_photos/', blank=True, null=True)
 
     def __str__(self):
