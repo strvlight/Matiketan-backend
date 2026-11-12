@@ -47,6 +47,8 @@ class TicketSerializer(serializers.ModelSerializer):
     class Meta:
         model = Ticket
         fields = '__all__'
+        # The processing administrator is set by the server on settlement only
+        read_only_fields = ['processed_by']
 
 
 class DetectionSerializer(serializers.ModelSerializer):
