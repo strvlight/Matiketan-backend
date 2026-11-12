@@ -691,6 +691,8 @@ def ticket_to_dict(t, request=None):
             timezone.localtime(t.date_paid).strftime('%b %d, %Y %I:%M %p')
             if t.date_paid else None
         ),
+        # Exact timestamp used by the dashboard to sort History by settlement time
+        'date_paid_iso': t.date_paid.isoformat() if t.date_paid else None,
         'receipt_number': t.receipt_number,
         'owner_name': t.owner_name,
         'amount_paid': str(t.amount_paid) if t.amount_paid is not None else None,
