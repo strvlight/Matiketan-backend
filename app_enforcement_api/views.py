@@ -696,6 +696,11 @@ def ticket_to_dict(t, request=None):
         'amount_paid': str(t.amount_paid) if t.amount_paid is not None else None,
         'payment_method': t.payment_method,
         'remarks': t.remarks,
+        # Administrator who processed the settlement (None for unpaid/older tickets)
+        'processed_by': (
+            (t.processed_by.get_full_name() or t.processed_by.username)
+            if t.processed_by else None
+        ),
         'evidence': evidence,
     }
 
@@ -708,7 +713,7 @@ def admin_search_tickets(request):
     q = request.query_params.get('q', '').strip().upper()
     status_filter = request.query_params.get('status', '').strip().lower()
 
-    tickets = Ticket.objects.select_related('violation', 'enforcer').prefetch_related('evidence').annotate(
+    tickets = Ticket.objects.select_related('violation', 'enforcer', 'processed_by').prefetch_related('evidence').annotate(
     plate_clean=Replace('plate_number', Value(' '), Value(''))
 ).order_by('-date_issued')
 
@@ -758,7 +763,7 @@ def admin_mark_paid(request, ticket_id):
                         status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        ticket = Ticket.objects.select_related('violation', 'enforcer').get(id=ticket_id)
+        ticket = Ticket.objects.select_related('violation', 'enforcer', 'processed_by').get(id=ticket_id)
     except Ticket.DoesNotExist:
         return Response({'error': 'Ticket not found.'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -779,6 +784,9 @@ def admin_mark_paid(request, ticket_id):
     ticket.amount_paid = amount_paid
     ticket.payment_method = payment_method
     ticket.remarks = remarks or None
+    # Record which administrator processed this settlement (taken from the
+    # logged-in user on the server, never from the request body)
+    ticket.processed_by = request.user
 
     try:
         ticket.save()
