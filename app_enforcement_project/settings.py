@@ -14,8 +14,7 @@ DETECTOR_API_KEY = os.getenv('DETECTOR_API_KEY', '')
 # LTMS (separate Supabase project). The URL is public; the key is a secret
 # and must be set in the hosting environment variables, never in the code.
 LTMS_SUPABASE_URL = os.getenv('LTMS_SUPABASE_URL', 'https://ugraxjcqefztdeqxoosw.supabase.co')
-LTMS_SERVICE_ROLE_KEY = os.getenv('LTMS_SERVICE_ROLE_KEY', 'sb_secret_w4hGE
-••••••••••••••••')
+LTMS_SERVICE_ROLE_KEY = os.getenv('LTMS_SERVICE_ROLE_KEY', 'sb_publishable_4D3VG9bQpt6-XBl1dh-8mQ_VE6AgzW6')
 
 # Media files (uploads)
 MEDIA_URL = '/media/'
