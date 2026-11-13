@@ -11,6 +11,11 @@ TEXTLINK_API_KEY = os.getenv('TEXTLINK_API_KEY')
 
 DETECTOR_API_KEY = os.getenv('DETECTOR_API_KEY', '')
 
+# LTMS (separate Supabase project). The URL is public; the key is a secret
+# and must be set in the hosting environment variables, never in the code.
+LTMS_SUPABASE_URL = os.getenv('LTMS_SUPABASE_URL', 'https://ugraxjcqefztdeqxoosw.supabase.co')
+LTMS_SERVICE_ROLE_KEY = os.getenv('LTMS_SERVICE_ROLE_KEY', 'sb_secret_w4hGEOljDb6bP5J4hv7LUg_Q6O0dPk')
+
 # Media files (uploads)
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
