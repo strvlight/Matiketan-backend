@@ -84,11 +84,42 @@ def send_sms(phone_number, message):
         print(f'[SMS ERROR] ❌ {e}')
         return False
 
+
+# ─────────────────────────────────────────
+# HELPER: Query the separate LTMS Supabase project
+# ─────────────────────────────────────────
+def ltms_fetch_vehicle(plate):
+    """Returns (status, row). status: 'found' | 'not_found' | 'error'"""
+    import requests
+
+    if not settings.LTMS_SUPABASE_URL or not settings.LTMS_SERVICE_ROLE_KEY:
+        return 'error', None
+
+    try:
+        res = requests.get(
+            f'{settings.LTMS_SUPABASE_URL}/rest/v1/vehicles',
+            headers={'apikey': settings.LTMS_SERVICE_ROLE_KEY},
+            params={
+                'plate_number': f'eq.{plate}',
+                'select': 'plate_number,vehicle_type,brand,model,color,owners(full_name,mobile_number)',
+            },
+            timeout=5,
+        )
+        res.raise_for_status()
+        rows = res.json()
+    except Exception as e:
+        print(f'[LTMS] Lookup failed: {e}')
+        return 'error', None
+
+    if not rows:
+        return 'not_found', None
+    return 'found', rows[0]
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def lookup_plate(request):
-    plate = request.query_params.get('plate', '').upper().strip()
-    plate_no_space = plate.replace(' ', '')  # ← remove spaces
+    plate = re.sub(r'[^A-Za-z0-9]', '', request.query_params.get('plate', '')).upper()
 
     if not plate:
         return Response(
@@ -96,32 +127,34 @@ def lookup_plate(request):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    try:
-        # Try exact match first, then without spaces
-        try:
-            vehicle = VehicleRegistration.objects.get(plate_number=plate)
-        except VehicleRegistration.DoesNotExist:
-            vehicle = VehicleRegistration.objects.get(plate_number=plate_no_space)
+    result, vehicle = ltms_fetch_vehicle(plate)
 
+    if result == 'found':
+        owner = vehicle.get('owners') or {}
         return Response({
             'found': True,
-            'plate_number': vehicle.plate_number,
-            'owner_name': vehicle.owner_name,
-            'owner_phone': vehicle.owner_contact,
+            'plate_number': vehicle['plate_number'],
+            'owner_name': owner.get('full_name') or '',
+            'owner_phone': owner.get('mobile_number') or '',
             'owner_address': '',
-            'vehicle_make': vehicle.brand,
-            'vehicle_model': vehicle.vehicle_type,
-            'vehicle_color': vehicle.color,
-            'vehicle_type': vehicle.vehicle_type,
+            'vehicle_make': vehicle['brand'],
+            'vehicle_model': vehicle['model'],
+            'vehicle_color': vehicle['color'],
+            'vehicle_type': vehicle['vehicle_type'],
         }, status=status.HTTP_200_OK)
 
-    except VehicleRegistration.DoesNotExist:
+    if result == 'error':
         return Response({
             'found': False,
-            'message': 'Plate not found in LTMS database.',
+            'message': 'LTMS database is unavailable. Enter the details manually.',
         }, status=status.HTTP_200_OK)
-        
-        
+
+    return Response({
+        'found': False,
+        'message': 'Plate not found in LTMS database.',
+    }, status=status.HTTP_200_OK)
+
+
 # ─────────────────────────────────────────
 # LOGIN
 # ─────────────────────────────────────────
