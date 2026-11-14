@@ -221,6 +221,99 @@ def compress_image(uploaded_file, max_width=800, quality=70):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])  # protected by the X-Detector-Key header below
+def process_detection(plate_number, location, confidence_score, image_file):
+    now = timezone.now()
+    window = timedelta(minutes=settings.DUPLICATE_WINDOW_MINUTES)
+    limit = settings.PARKING_LIMIT_SECONDS
+
+    image_bytes = None
+    if image_file:
+        try:
+            image_bytes = compress_image(image_file)
+        except Exception as e:
+            print(f'[DETECTION] Image skipped: {e}')
+
+    to_notify = None
+    response = None
+
+    with transaction.atomic():
+        with connection.cursor() as cur:
+            cur.execute('SELECT pg_advisory_xact_lock(%s)',
+                        [zlib.crc32(plate_number.encode())])
+
+        existing = Detection.objects.select_for_update().filter(
+            plate_number=plate_number,
+            status__in=['monitoring', 'pending', 'in_progress'],
+            last_seen__gte=now - window,
+        ).order_by('-last_seen').first()
+
+        if existing:
+            existing.last_seen = now
+            existing.sighting_count += 1
+            if location:
+                existing.location = location
+            parked_for = (now - existing.detected_at).total_seconds()
+            became_pending = (existing.status == 'monitoring'
+                              and parked_for >= limit)
+            if became_pending:
+                existing.status = 'pending'
+                to_notify = existing
+            existing.save()
+            response = Response({
+                'id': existing.id,
+                'plate_number': existing.plate_number,
+                'status': existing.status,
+                'duplicate': True,
+                'parked_seconds': int(parked_for),
+                'sighting_count': existing.sighting_count,
+                'message': 'Existing detection updated.',
+            }, status=status.HTTP_200_OK)
+        else:
+            recently_done = Detection.objects.filter(
+                plate_number=plate_number
+            ).filter(
+                Q(status='confirmed',
+                  last_seen__gte=now - timedelta(hours=settings.COOLDOWN_CONFIRMED_HOURS)) |
+                Q(status='declined',
+                  declined_at__gte=now - timedelta(hours=settings.COOLDOWN_DECLINED_HOURS))
+            ).exists()
+
+            if recently_done:
+                response = Response(
+                    {'skipped': True, 'reason': 'cooldown',
+                     'plate_number': plate_number},
+                    status=status.HTTP_200_OK)
+            else:
+                detection = Detection.objects.create(
+                    plate_number=plate_number,
+                    location=location,
+                    confidence_score=confidence_score,
+                    status='pending' if limit <= 0 else 'monitoring',
+                    last_seen=now,
+                )
+                has_image = False
+                if image_bytes:
+                    DetectionImage.objects.create(
+                        detection=detection, data=image_bytes)
+                    has_image = True
+                if detection.status == 'pending':
+                    to_notify = detection
+                response = Response({
+                    'id': detection.id,
+                    'plate_number': detection.plate_number,
+                    'status': detection.status,
+                    'has_image': has_image,
+                    'duplicate': False,
+                    'message': 'Detection received successfully.',
+                }, status=status.HTTP_201_CREATED)
+
+    if to_notify:
+        notify_detection(to_notify)
+    return response
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
 def receive_detection(request):
     key = request.META.get('HTTP_X_DETECTOR_KEY', '')
     if not settings.DETECTOR_API_KEY or key != settings.DETECTOR_API_KEY:
@@ -228,76 +321,55 @@ def receive_detection(request):
                         status=status.HTTP_401_UNAUTHORIZED)
 
     plate_number = str(request.data.get('plate_number', '')).strip().upper()
-    location = request.data.get('location', '')
-    confidence_score = request.data.get('confidence_score', 0.0)
-
     if not plate_number:
         return Response({'error': 'Plate number required.'},
                         status=status.HTTP_400_BAD_REQUEST)
 
-    now = timezone.now()
-    window = timedelta(minutes=settings.DUPLICATE_WINDOW_MINUTES)
-    limit = settings.PARKING_LIMIT_SECONDS
-
-    # Same plate seen recently? Update it instead of creating a new alert.
-    existing = Detection.objects.filter(
-        plate_number=plate_number,
-        status__in=['monitoring', 'pending'],
-        last_seen__gte=now - window,
-    ).order_by('-last_seen').first()
-
-    if existing:
-        existing.last_seen = now
-        existing.sighting_count += 1
-        parked_for = (now - existing.detected_at).total_seconds()
-        became_pending = existing.status == 'monitoring' and parked_for >= limit
-        if became_pending:
-            existing.status = 'pending'
-        existing.save()
-        if became_pending:
-            notify_detection(existing)
-        return Response({
-            'id': existing.id,
-            'plate_number': existing.plate_number,
-            'status': existing.status,
-            'duplicate': True,
-            'parked_seconds': int(parked_for),
-            'sighting_count': existing.sighting_count,
-            'message': 'Existing detection updated.',
-        }, status=status.HTTP_200_OK)
-
-    detection = Detection.objects.create(
-        plate_number=plate_number,
-        location=location,
-        confidence_score=confidence_score,
-        status='pending' if limit <= 0 else 'monitoring',
-        last_seen=now,
+    return process_detection(
+        plate_number,
+        request.data.get('location', ''),
+        request.data.get('confidence_score', 0.0),
+        request.FILES.get('image'),
     )
+  
+@api_view(['POST'])
+@permission_classes([AllowAny])  # protected by the detector key
+@parser_classes([MultiPartParser, FormParser])
+def detect_from_image(request):
+    key = request.META.get('HTTP_X_DETECTOR_KEY', '') or request.data.get('key', '')
+    if not settings.DETECTOR_API_KEY or key != settings.DETECTOR_API_KEY:
+        return Response({'error': 'Invalid detector key.'},
+                        status=status.HTTP_401_UNAUTHORIZED)
 
-    # The image is optional: if it fails, the detection text is still saved
-    has_image = False
-    image_file = request.FILES.get('image')
-    if image_file:
-        try:
-            DetectionImage.objects.create(
-                detection=detection, data=compress_image(image_file)
-            )
-            has_image = True
-        except Exception as e:
-            print(f'[DETECTION] Image skipped: {e}')
+    image = request.FILES.get('image')
+    if not image:
+        return Response({'error': 'Image required.'},
+                        status=status.HTTP_400_BAD_REQUEST)
 
-    if detection.status == 'pending':
-        notify_detection(detection)
+    import requests
+    try:
+        r = requests.post(
+            'https://api.platerecognizer.com/v1/plate-reader/',
+            files={'upload': (image.name, image.read())},
+            headers={'Authorization': f'Token {settings.PLATE_RECOGNIZER_TOKEN}'},
+            timeout=30,
+        )
+        results = r.json().get('results', [])
+    except Exception as e:
+        return Response({'error': f'Plate recognition failed: {e}'},
+                        status=status.HTTP_502_BAD_GATEWAY)
 
-    return Response({
-        'id': detection.id,
-        'plate_number': detection.plate_number,
-        'status': detection.status,
-        'has_image': has_image,
-        'duplicate': False,
-        'message': 'Detection received successfully.',
-    }, status=status.HTTP_201_CREATED)
+    if not results:
+        return Response({'detected': False, 'message': 'No plate found in the photo.'})
 
+    best = results[0]
+    image.seek(0)
+    return process_detection(
+        best['plate'].upper(),
+        request.data.get('location', 'Montilla Blvd., Butuan City'),
+        round(best['score'] * 100, 2),
+        image,
+    )
 # ─────────────────────────────────────────
 # GET PENDING DETECTIONS (Flutter polls this)
 # ─────────────────────────────────────────
