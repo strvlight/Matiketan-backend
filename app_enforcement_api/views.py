@@ -193,6 +193,7 @@ def login_view(request):
             'id': enforcer.id,
             'badge_id': enforcer.badge_id,
             'full_name': enforcer.full_name,
+            'contact_number': enforcer.contact_number,
             'is_on_duty': enforcer.is_on_duty,
             'assigned_area': enforcer.assigned_area,
         }
@@ -446,6 +447,7 @@ def get_profile(request):
         'id': e.id,
         'full_name': e.full_name,
         'badge_id': e.badge_id,
+        'contact_number': e.contact_number,
         'assigned_area': e.assigned_area,
         'has_photo': bool(e.photo_data),
     })
