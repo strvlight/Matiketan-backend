@@ -185,3 +185,18 @@ class Evidence(models.Model):
 
     def __str__(self):
         return f"Evidence for {self.ticket.transaction_code}"
+
+
+# ─────────────────────────────────────────
+# TICKET SIGNATURE (violator's signature, captured on the web settlement page only)
+# ─────────────────────────────────────────
+class TicketSignature(models.Model):
+    ticket = models.OneToOneField(
+        Ticket, on_delete=models.CASCADE, related_name='signature'
+    )
+    data = models.BinaryField()
+    content_type = models.CharField(max_length=50, default='image/png')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Signature for {self.ticket.transaction_code}"
