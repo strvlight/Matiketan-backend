@@ -22,7 +22,11 @@ import random, string
 from io import BytesIO
 from PIL import Image
 
-from .models import Enforcer, Evidence, Violation, Ticket, Detection, DetectionImage, DeclineEvidence, VehicleRegistration, DeviceToken
+from .models import (
+    Enforcer, Evidence, Violation, Ticket, Detection, DetectionImage,
+    DeclineEvidence, VehicleRegistration, DeviceToken, TicketSignature,
+)
+from .signature_utils import decode_signature
 from .serializer import (
     EnforcerSerializer, ViolationSerializer,
     TicketSerializer, DetectionSerializer
@@ -713,6 +717,16 @@ def ticket_to_dict(t, request=None):
             url = request.build_absolute_uri(url)
         evidence.append({'id': e.id, 'url': url, 'type': e.file_type})
 
+    has_signature = (
+        TicketSignature.objects.filter(ticket_id=t.id).exists()
+        if t.status == 'paid' else False
+    )
+    signature_url = None
+    if has_signature:
+        signature_url = f'/api/admin/tickets/{t.id}/signature/'
+        if request:
+            signature_url = request.build_absolute_uri(signature_url)
+
     return {
         'id': t.id,
         'transaction_code': t.transaction_code,
@@ -742,6 +756,8 @@ def ticket_to_dict(t, request=None):
             (t.processed_by.get_full_name() or t.processed_by.username)
             if t.processed_by else None
         ),
+        'has_signature': has_signature,
+        'signature_url': signature_url,
         'evidence': evidence,
     }
 
@@ -774,7 +790,7 @@ RECEIPT_PATTERN = re.compile(r'^[A-Z0-9][A-Z0-9\-/]{2,29}$')
 
 
 # ─────────────────────────────────────────
-# ADMIN: mark a ticket as paid (with manual payment details)
+# ADMIN: mark a ticket as paid (with manual payment details + violator signature)
 # ─────────────────────────────────────────
 @api_view(['POST'])
 @permission_classes([IsAdminUser])
@@ -818,6 +834,13 @@ def admin_mark_paid(request, ticket_id):
         return Response({'error': 'That receipt number is already used on another ticket.'},
                         status=status.HTTP_400_BAD_REQUEST)
 
+    # The violator's signature is required; a missing or fake one stops the
+    # settlement before any ticket field changes
+    try:
+        signature_png = decode_signature(request.data.get('violator_signature'))
+    except ValueError as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
     ticket.status = 'paid'
     ticket.date_paid = timezone.now()
     ticket.receipt_number = receipt_number
@@ -830,12 +853,27 @@ def admin_mark_paid(request, ticket_id):
     ticket.processed_by = request.user
 
     try:
-        ticket.save()
+        # Ticket and signature are saved together or not at all
+        with transaction.atomic():
+            ticket.save()
+            TicketSignature.objects.create(ticket=ticket, data=signature_png)
     except IntegrityError:
         return Response({'error': 'That receipt number is already used on another ticket.'},
                         status=status.HTTP_400_BAD_REQUEST)
 
     return Response(ticket_to_dict(ticket, request), status=status.HTTP_200_OK)
+
+
+# ─────────────────────────────────────────
+# ADMIN: serve a ticket's violator signature (token required)
+# ─────────────────────────────────────────
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def admin_ticket_signature(request, ticket_id):
+    sig = TicketSignature.objects.filter(ticket_id=ticket_id).first()
+    if not sig:
+        return Response({'error': 'No signature.'}, status=status.HTTP_404_NOT_FOUND)
+    return HttpResponse(bytes(sig.data), content_type=sig.content_type)
 
 # ─────────────────────────────────────────
 # ADMIN: create an enforcer account
