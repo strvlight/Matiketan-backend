@@ -54,6 +54,7 @@ class Ticket(models.Model):
     date_issued = models.DateTimeField(auto_now_add=True)
     date_paid = models.DateTimeField(null=True, blank=True) 
     photo = models.ImageField(upload_to='ticket_photos/', blank=True, null=True)
+    signature_data = models.BinaryField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.transaction_code} - {self.plate_number}"

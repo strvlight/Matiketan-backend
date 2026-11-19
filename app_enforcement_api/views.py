@@ -603,7 +603,31 @@ def ticket_sms_text(t):
         if n.strip()
     ]
     fine = t.violation.fine_amount if t.violation else 0
-    return build_sms_message(t, names, fine)     
+    return build_sms_message(t, names, fine) 
+
+@api_view(['POST', 'GET'])
+@permission_classes([IsAuthenticated])
+@parser_classes([MultiPartParser, FormParser])
+def ticket_signature(request, ticket_id):
+    try:
+        ticket = Ticket.objects.get(id=ticket_id)
+    except Ticket.DoesNotExist:
+        return Response({'error': 'Ticket not found.'},
+                        status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'POST':
+        f = request.FILES.get('signature')
+        if not f:
+            return Response({'error': 'Signature required.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        ticket.signature_data = f.read()
+        ticket.save()
+        return Response({'ok': True})
+
+    if not ticket.signature_data:
+        return Response({'error': 'No signature.'},
+                        status=status.HTTP_404_NOT_FOUND)
+    return HttpResponse(bytes(ticket.signature_data), content_type='image/png')   
 
 # ─────────────────────────────────────────
 # SUBMIT TICKET (custom endpoint)

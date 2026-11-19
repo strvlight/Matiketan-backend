@@ -40,10 +40,19 @@ class EnforcerAdmin(admin.ModelAdmin):
         
         
 admin.site.register(Violation)
-admin.site.register(Ticket)
 admin.site.register(VehicleRegistration)
 admin.site.register(Evidence)
 
+@admin.register(Ticket)
+class TicketAdmin(admin.ModelAdmin):
+    list_display = ('transaction_code', 'plate_number', 'status', 'enforcer', 'date_issued')
+    search_fields = ('transaction_code', 'plate_number')
+    readonly_fields = ('signature_preview',)
+    exclude = ('signature_data',)
+
+    def signature_preview(self, obj):
+        return _img_tag(obj.signature_data, 'image/png', width=240) if obj.signature_data else '-'
+    signature_preview.short_description = 'Officer signature'
 
 def _img_tag(data, content_type, width=320):
     """Render binary image data inline (images are stored in the database)."""

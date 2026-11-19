@@ -10,7 +10,7 @@ from .views import (
     update_detection,
     get_declined_detections, get_decline_evidence,
     admin_login, admin_search_tickets, admin_mark_paid,
-    admin_create_enforcer
+    admin_create_enforcer, ticket_signature
 )
 
 router = DefaultRouter()
@@ -41,4 +41,5 @@ urlpatterns = [
     path('profile/', get_profile, name='profile'),
     path('profile/photo/', profile_photo, name='profile_photo'),
     path('detections/detect/', detect_from_image, name='detect_from_image'),
+    path('tickets/<int:ticket_id>/signature/', ticket_signature, name='ticket_signature'),
 ] + router.urls
