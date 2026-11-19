@@ -873,6 +873,9 @@ def admin_create_enforcer(request):
             contact_number=contact_number,
             assigned_area=assigned_area,
             is_on_duty=True,
+            # Administrator who created this enforcer (taken from the
+            # logged-in user on the server, never from the request body)
+            created_by=request.user,
         )
 
     return Response({
