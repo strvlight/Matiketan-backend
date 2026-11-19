@@ -11,8 +11,6 @@ TEXTLINK_API_KEY = os.getenv('TEXTLINK_API_KEY')
 
 DETECTOR_API_KEY = os.getenv('DETECTOR_API_KEY', '')
 
-PLATE_RECOGNIZER_TOKEN = os.getenv('PLATE_RECOGNIZER_TOKEN', '')
-
 # Media files (uploads)
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')

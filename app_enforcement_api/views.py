@@ -5,16 +5,19 @@ from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 from datetime import timedelta
+from decimal import Decimal, InvalidOperation
 from django.utils import timezone
 from django.db.models import Q, Value
 from django.db.models.functions import Replace
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.http import HttpResponse
 from django.conf import settings
 from .push import notify_detection
 import os
+import re
+import base64
 import random, string
 from io import BytesIO
 from PIL import Image
@@ -81,11 +84,42 @@ def send_sms(phone_number, message):
         print(f'[SMS ERROR] ❌ {e}')
         return False
 
+
+# ─────────────────────────────────────────
+# HELPER: Query the separate LTMS Supabase project
+# ─────────────────────────────────────────
+def ltms_fetch_vehicle(plate):
+    """Returns (status, row). status: 'found' | 'not_found' | 'error'"""
+    import requests
+
+    if not settings.LTMS_SUPABASE_URL or not settings.LTMS_SERVICE_ROLE_KEY:
+        return 'error', None
+
+    try:
+        res = requests.get(
+            f'{settings.LTMS_SUPABASE_URL}/rest/v1/vehicles',
+            headers={'apikey': settings.LTMS_SERVICE_ROLE_KEY},
+            params={
+                'plate_number': f'eq.{plate}',
+                'select': 'plate_number,vehicle_type,brand,model,color,owners(full_name,mobile_number)',
+            },
+            timeout=5,
+        )
+        res.raise_for_status()
+        rows = res.json()
+    except Exception as e:
+        print(f'[LTMS] Lookup failed: {e}')
+        return 'error', None
+
+    if not rows:
+        return 'not_found', None
+    return 'found', rows[0]
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def lookup_plate(request):
-    plate = request.query_params.get('plate', '').upper().strip()
-    plate_no_space = plate.replace(' ', '')  # ← remove spaces
+    plate = re.sub(r'[^A-Za-z0-9]', '', request.query_params.get('plate', '')).upper()
 
     if not plate:
         return Response(
@@ -93,32 +127,34 @@ def lookup_plate(request):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    try:
-        # Try exact match first, then without spaces
-        try:
-            vehicle = VehicleRegistration.objects.get(plate_number=plate)
-        except VehicleRegistration.DoesNotExist:
-            vehicle = VehicleRegistration.objects.get(plate_number=plate_no_space)
+    result, vehicle = ltms_fetch_vehicle(plate)
 
+    if result == 'found':
+        owner = vehicle.get('owners') or {}
         return Response({
             'found': True,
-            'plate_number': vehicle.plate_number,
-            'owner_name': vehicle.owner_name,
-            'owner_phone': vehicle.owner_contact,
+            'plate_number': vehicle['plate_number'],
+            'owner_name': owner.get('full_name') or '',
+            'owner_phone': owner.get('mobile_number') or '',
             'owner_address': '',
-            'vehicle_make': vehicle.brand,
-            'vehicle_model': vehicle.vehicle_type,
-            'vehicle_color': vehicle.color,
-            'vehicle_type': vehicle.vehicle_type,
+            'vehicle_make': vehicle['brand'],
+            'vehicle_model': vehicle['model'],
+            'vehicle_color': vehicle['color'],
+            'vehicle_type': vehicle['vehicle_type'],
         }, status=status.HTTP_200_OK)
 
-    except VehicleRegistration.DoesNotExist:
+    if result == 'error':
         return Response({
             'found': False,
-            'message': 'Plate not found in LTMS database.',
+            'message': 'LTMS database is unavailable. Enter the details manually.',
         }, status=status.HTTP_200_OK)
-        
-        
+
+    return Response({
+        'found': False,
+        'message': 'Plate not found in LTMS database.',
+    }, status=status.HTTP_200_OK)
+
+
 # ─────────────────────────────────────────
 # LOGIN
 # ─────────────────────────────────────────
@@ -157,6 +193,7 @@ def login_view(request):
             'id': enforcer.id,
             'badge_id': enforcer.badge_id,
             'full_name': enforcer.full_name,
+            'contact_number': enforcer.contact_number,
             'is_on_duty': enforcer.is_on_duty,
             'assigned_area': enforcer.assigned_area,
         }
@@ -482,6 +519,7 @@ def get_profile(request):
         'id': e.id,
         'full_name': e.full_name,
         'badge_id': e.badge_id,
+        'contact_number': e.contact_number,
         'assigned_area': e.assigned_area,
         'has_photo': bool(e.photo_data),
     })
@@ -520,7 +558,7 @@ def profile_photo(request):
 @permission_classes([IsAuthenticated])
 def get_declined_detections(request):
     enforcer = Enforcer.objects.filter(user=request.user).first()
-    qs = Detection.objects.filter(status='declined')
+    qs = Detection.objects.filter(status='declined').select_related('reviewed_by')
     if enforcer and not request.user.is_staff:
         qs = qs.filter(reviewed_by=enforcer)
     qs = qs.order_by('-declined_at', '-detected_at')[:100]
@@ -537,6 +575,8 @@ def get_declined_detections(request):
             'decline_notes': d.decline_notes,
             'has_evidence': d.decline_evidence.exists(),
             'declined_at': timezone.localtime(when).strftime('%b %d, %Y %I:%M %p'),
+            'declined_by': d.reviewed_by.full_name if d.reviewed_by else None,
+            'declined_by_badge': d.reviewed_by.badge_id if d.reviewed_by else None,
         })
     return Response(data, status=status.HTTP_200_OK)
 
@@ -548,6 +588,28 @@ def get_decline_evidence(request, detection_id):
     if not ev:
         return Response({'error': 'No evidence.'}, status=status.HTTP_404_NOT_FOUND)
     return HttpResponse(bytes(ev.data), content_type=ev.content_type)
+
+
+def _data_url(data, ctype):
+    return f"data:{ctype or 'image/jpeg'};base64," + base64.b64encode(bytes(data)).decode()
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_declined_detail(request, detection_id):
+    try:
+        d = Detection.objects.get(id=detection_id)
+    except Detection.DoesNotExist:
+        return Response({'error': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    images = []
+    di = DetectionImage.objects.filter(detection=d).first()
+    if di:
+        images.append(_data_url(di.data, di.content_type))
+    for ev in d.decline_evidence.all().order_by('id'):
+        images.append(_data_url(ev.data, ev.content_type))
+
+    return Response({'id': d.id, 'images': images})
 
 # ─────────────────────────────────────────
 # FINES (default amounts; editable in Django Admin > Violations)
@@ -760,6 +822,18 @@ def ticket_to_dict(t, request=None):
             timezone.localtime(t.date_paid).strftime('%b %d, %Y %I:%M %p')
             if t.date_paid else None
         ),
+        # Exact timestamp used by the dashboard to sort History by settlement time
+        'date_paid_iso': t.date_paid.isoformat() if t.date_paid else None,
+        'receipt_number': t.receipt_number,
+        'owner_name': t.owner_name,
+        'amount_paid': str(t.amount_paid) if t.amount_paid is not None else None,
+        'payment_method': t.payment_method,
+        'remarks': t.remarks,
+        # Administrator who processed the settlement (None for unpaid/older tickets)
+        'processed_by': (
+            (t.processed_by.get_full_name() or t.processed_by.username)
+            if t.processed_by else None
+        ),
         'evidence': evidence,
     }
 
@@ -772,7 +846,7 @@ def admin_search_tickets(request):
     q = request.query_params.get('q', '').strip().upper()
     status_filter = request.query_params.get('status', '').strip().lower()
 
-    tickets = Ticket.objects.select_related('violation', 'enforcer').prefetch_related('evidence').annotate(
+    tickets = Ticket.objects.select_related('violation', 'enforcer', 'processed_by').prefetch_related('evidence').annotate(
     plate_clean=Replace('plate_number', Value(' '), Value(''))
 ).order_by('-date_issued')
 
@@ -787,14 +861,42 @@ def admin_search_tickets(request):
     return Response([ticket_to_dict(t, request) for t in tickets[:100]])
 
 
+# Receipt numbers are copied from the official receipt: letters, digits, - and /
+RECEIPT_PATTERN = re.compile(r'^[A-Z0-9][A-Z0-9\-/]{2,29}$')
+
+
 # ─────────────────────────────────────────
-# ADMIN: mark a ticket as paid
+# ADMIN: mark a ticket as paid (with manual payment details)
 # ─────────────────────────────────────────
 @api_view(['POST'])
 @permission_classes([IsAdminUser])
 def admin_mark_paid(request, ticket_id):
+    # Normalize so 'or-001 ' and 'OR-001' count as the same receipt number
+    receipt_number = re.sub(r'\s+', '', str(request.data.get('receipt_number') or '')).upper()
+    owner_name = str(request.data.get('owner_name') or '').strip()
+    payment_method = str(request.data.get('payment_method') or '').strip() or 'Cash'
+    remarks = str(request.data.get('remarks') or '').strip()
+
+    if not receipt_number:
+        return Response({'error': 'Receipt number is required.'},
+                        status=status.HTTP_400_BAD_REQUEST)
+    if not RECEIPT_PATTERN.match(receipt_number):
+        return Response(
+            {'error': 'Receipt number must be 3-30 characters: letters, numbers, - or / only.'},
+            status=status.HTTP_400_BAD_REQUEST)
+    if not owner_name:
+        return Response({'error': "Vehicle owner's name is required."},
+                        status=status.HTTP_400_BAD_REQUEST)
     try:
-        ticket = Ticket.objects.select_related('violation', 'enforcer').get(id=ticket_id)
+        amount_paid = Decimal(str(request.data.get('amount_paid')))
+        if amount_paid <= 0:
+            raise InvalidOperation
+    except (InvalidOperation, ValueError, TypeError):
+        return Response({'error': 'Enter a valid amount paid.'},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        ticket = Ticket.objects.select_related('violation', 'enforcer', 'processed_by').get(id=ticket_id)
     except Ticket.DoesNotExist:
         return Response({'error': 'Ticket not found.'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -804,9 +906,26 @@ def admin_mark_paid(request, ticket_id):
             status=status.HTTP_400_BAD_REQUEST
         )
 
+    if Ticket.objects.filter(receipt_number__iexact=receipt_number).exclude(id=ticket.id).exists():
+        return Response({'error': 'That receipt number is already used on another ticket.'},
+                        status=status.HTTP_400_BAD_REQUEST)
+
     ticket.status = 'paid'
     ticket.date_paid = timezone.now()
-    ticket.save()
+    ticket.receipt_number = receipt_number
+    ticket.owner_name = owner_name
+    ticket.amount_paid = amount_paid
+    ticket.payment_method = payment_method
+    ticket.remarks = remarks or None
+    # Record which administrator processed this settlement (taken from the
+    # logged-in user on the server, never from the request body)
+    ticket.processed_by = request.user
+
+    try:
+        ticket.save()
+    except IntegrityError:
+        return Response({'error': 'That receipt number is already used on another ticket.'},
+                        status=status.HTTP_400_BAD_REQUEST)
 
     return Response(ticket_to_dict(ticket, request), status=status.HTTP_200_OK)
 
@@ -820,6 +939,7 @@ def admin_create_enforcer(request):
     full_name = str(request.data.get('full_name', '')).strip()
     password = str(request.data.get('password', ''))
     contact_number = str(request.data.get('contact_number', '')).strip()
+    assigned_area = str(request.data.get('assigned_area', '')).strip()
 
     if not badge_id or not full_name or not password:
         return Response(
@@ -847,6 +967,7 @@ def admin_create_enforcer(request):
             badge_id=badge_id,
             full_name=full_name,
             contact_number=contact_number,
+            assigned_area=assigned_area,
             is_on_duty=True,
         )
 
@@ -855,8 +976,34 @@ def admin_create_enforcer(request):
         'badge_id': enforcer.badge_id,
         'full_name': enforcer.full_name,
         'contact_number': enforcer.contact_number,
+        'assigned_area': enforcer.assigned_area,
         'is_on_duty': enforcer.is_on_duty,
     }, status=status.HTTP_201_CREATED)
+
+
+# ─────────────────────────────────────────
+# ADMIN: upload an enforcer's profile photo (saved in the DB, same as mobile)
+# ─────────────────────────────────────────
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+@parser_classes([MultiPartParser, FormParser])
+def admin_enforcer_photo(request, enforcer_id):
+    try:
+        e = Enforcer.objects.get(id=enforcer_id)
+    except Enforcer.DoesNotExist:
+        return Response({'error': 'Enforcer not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    f = request.FILES.get('photo')
+    if not f:
+        return Response({'error': 'Photo required.'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        e.photo_data = compress_image(f, max_width=400, quality=80)
+        e.photo_type = 'image/jpeg'
+        e.save()
+    except Exception as ex:
+        return Response({'error': f'Invalid image: {ex}'}, status=status.HTTP_400_BAD_REQUEST)
+
+    return Response(EnforcerSerializer(e, context={'request': request}).data)
 
 
 @api_view(['POST'])

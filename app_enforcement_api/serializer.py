@@ -1,15 +1,19 @@
+import base64
+
 from rest_framework import serializers
 from .models import Enforcer, Violation, Ticket, Detection
 
 
 class EnforcerSerializer(serializers.ModelSerializer):
     profile_photo_url = serializers.SerializerMethodField()
+    photo_data_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Enforcer
         fields = [
             'id', 'badge_id', 'full_name', 'contact_number',
-            'is_on_duty', 'profile_photo', 'profile_photo_url',
+            'is_on_duty', 'assigned_area', 'profile_photo',
+            'profile_photo_url', 'photo_data_url',
         ]
         extra_kwargs = {
             'profile_photo': {'write_only': True, 'required': False},
@@ -21,6 +25,12 @@ class EnforcerSerializer(serializers.ModelSerializer):
         request = self.context.get('request')
         url = obj.profile_photo.url
         return request.build_absolute_uri(url) if request else url
+
+    def get_photo_data_url(self, obj):
+        if not obj.photo_data:
+            return None
+        mime = obj.photo_type or 'image/jpeg'
+        return f"data:{mime};base64," + base64.b64encode(bytes(obj.photo_data)).decode()
 
 
 class ViolationSerializer(serializers.ModelSerializer):
@@ -37,6 +47,8 @@ class TicketSerializer(serializers.ModelSerializer):
     class Meta:
         model = Ticket
         fields = '__all__'
+        # The processing administrator is set by the server on settlement only
+        read_only_fields = ['processed_by']
 
 
 class DetectionSerializer(serializers.ModelSerializer):
