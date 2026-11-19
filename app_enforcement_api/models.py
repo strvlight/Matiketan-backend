@@ -18,6 +18,12 @@ class Enforcer(models.Model):
     photo_data = models.BinaryField(null=True, blank=True)
     photo_type = models.CharField(max_length=50, default='image/jpeg')
 
+    # Administrator who created this enforcer account (audit trail)
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='created_enforcers',
+    )
+
     def __str__(self):
         return f"{self.full_name} ({self.badge_id})"
 
