@@ -47,6 +47,9 @@ def send_sms(phone_number, message):
         import requests
         from django.conf import settings
 
+        # Remove spaces, dashes and other characters (keeps digits and +)
+        phone_number = re.sub(r'[^\d+]', '', str(phone_number or ''))
+
         # TextLink requires +63 country prefix format
         if phone_number.startswith('0'):
             phone_number = '+63' + phone_number[1:]
@@ -637,6 +640,7 @@ def submit_ticket(request):
 
         # ── SMS NOTIFICATION ──
     phone_number = request.data.get('phone_number', '')
+    print(f'[TICKET] phone_number received: "{phone_number}"')
     sms_message = build_sms_message(ticket, names, total_fine)
     sms_sent = False
 
