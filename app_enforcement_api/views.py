@@ -25,6 +25,7 @@ from PIL import Image
 from .models import (
     Enforcer, Evidence, Violation, Ticket, Detection, DetectionImage,
     DeclineEvidence, VehicleRegistration, DeviceToken, TicketSignature,
+    EnforcerSignature,
 )
 from .signature_utils import decode_signature
 from .serializer import (
@@ -617,6 +618,16 @@ def submit_ticket(request):
             status=status.HTTP_401_UNAUTHORIZED
         )
 
+    # Enforcer signature (optional). If one is sent but invalid, the ticket is
+    # rejected before anything is created.
+    enforcer_signature_png = None
+    raw_enforcer_signature = request.data.get('enforcer_signature')
+    if raw_enforcer_signature:
+        try:
+            enforcer_signature_png = decode_signature(raw_enforcer_signature, 'Enforcer signature')
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
     # Get violations (can be several, separated by commas) and the total fine
     violation_name = request.data.get('violation_name', '')
     names, total_fine = resolve_violations(violation_name)
@@ -630,17 +641,20 @@ def submit_ticket(request):
         defaults={'fine_amount': total_fine},
     )
 
-    # Create ticket
-    ticket = Ticket.objects.create(
-        transaction_code=generate_tx_code(),
-        plate_number=request.data.get('plate_number', ''),
-        vehicle_type=request.data.get('vehicle_type', ''),
-        driver_name=str(request.data.get('driver_name', '')).strip(), 
-        violation=violation,
-        location=request.data.get('location', ''),
-        enforcer=enforcer,
-        status='unpaid',
-    )
+    # Create ticket (the enforcer signature, if sent, is saved in the same transaction)
+    with transaction.atomic():
+        ticket = Ticket.objects.create(
+            transaction_code=generate_tx_code(),
+            plate_number=request.data.get('plate_number', ''),
+            vehicle_type=request.data.get('vehicle_type', ''),
+            driver_name=str(request.data.get('driver_name', '')).strip(), 
+            violation=violation,
+            location=request.data.get('location', ''),
+            enforcer=enforcer,
+            status='unpaid',
+        )
+        if enforcer_signature_png:
+            EnforcerSignature.objects.create(ticket=ticket, data=enforcer_signature_png)
 
         # ── SMS NOTIFICATION ──
     phone_number = request.data.get('phone_number', '')
@@ -721,6 +735,8 @@ def ticket_to_dict(t, request=None):
         TicketSignature.objects.filter(ticket_id=t.id).exists()
         if t.status == 'paid' else False
     )
+    has_enforcer_signature = EnforcerSignature.objects.filter(ticket_id=t.id).exists()
+
     signature_url = None
     if has_signature:
         signature_url = f'/api/admin/tickets/{t.id}/signature/'
@@ -758,6 +774,7 @@ def ticket_to_dict(t, request=None):
         ),
         'has_signature': has_signature,
         'signature_url': signature_url,
+        'has_enforcer_signature': has_enforcer_signature,
         'evidence': evidence,
     }
 
@@ -871,6 +888,18 @@ def admin_mark_paid(request, ticket_id):
 @permission_classes([IsAdminUser])
 def admin_ticket_signature(request, ticket_id):
     sig = TicketSignature.objects.filter(ticket_id=ticket_id).first()
+    if not sig:
+        return Response({'error': 'No signature.'}, status=status.HTTP_404_NOT_FOUND)
+    return HttpResponse(bytes(sig.data), content_type=sig.content_type)
+
+
+# ─────────────────────────────────────────
+# ADMIN: serve a ticket's enforcer signature (token required)
+# ─────────────────────────────────────────
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def admin_ticket_enforcer_signature(request, ticket_id):
+    sig = EnforcerSignature.objects.filter(ticket_id=ticket_id).first()
     if not sig:
         return Response({'error': 'No signature.'}, status=status.HTTP_404_NOT_FOUND)
     return HttpResponse(bytes(sig.data), content_type=sig.content_type)
