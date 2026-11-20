@@ -200,3 +200,18 @@ class TicketSignature(models.Model):
 
     def __str__(self):
         return f"Signature for {self.ticket.transaction_code}"
+
+
+# ─────────────────────────────────────────
+# OFFICER SIGNATURE (enforcer's signature, captured in the mobile app at issuing)
+# ─────────────────────────────────────────
+class OfficerSignature(models.Model):
+    ticket = models.OneToOneField(
+        Ticket, on_delete=models.CASCADE, related_name='officer_signature'
+    )
+    data = models.BinaryField()
+    content_type = models.CharField(max_length=50, default='image/png')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Officer signature for {self.ticket.transaction_code}"
