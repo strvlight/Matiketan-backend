@@ -9,7 +9,7 @@ from .views import (
     receive_detection, get_pending_detections,
     update_detection,
     get_declined_detections, get_decline_evidence, get_declined_detail,
-    admin_login, admin_search_tickets, admin_mark_paid, admin_ticket_signature,
+    admin_login, admin_search_tickets, admin_mark_paid, admin_ticket_signature, admin_ticket_enforcer_signature,
     admin_create_enforcer, admin_enforcer_photo
 )
 
@@ -34,6 +34,7 @@ urlpatterns = [
     path('admin/tickets/search/', admin_search_tickets, name='admin_search_tickets'),
     path('admin/tickets/<int:ticket_id>/pay/', admin_mark_paid, name='admin_mark_paid'),
     path('admin/tickets/<int:ticket_id>/signature/', admin_ticket_signature, name='admin_ticket_signature'),
+    path('admin/tickets/<int:ticket_id>/enforcer-signature/', admin_ticket_enforcer_signature, name='admin_ticket_enforcer_signature'),
     path('admin/enforcers/create/', admin_create_enforcer, name='admin_create_enforcer'),
     path('admin/enforcers/<int:enforcer_id>/photo/', admin_enforcer_photo, name='admin_enforcer_photo'),
     path('detections/<int:detection_id>/image/', get_detection_image, name='detection_image'),
