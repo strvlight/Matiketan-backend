@@ -203,15 +203,15 @@ class TicketSignature(models.Model):
 
 
 # ─────────────────────────────────────────
-# OFFICER SIGNATURE (enforcer's signature, captured in the mobile app at issuing)
+# ENFORCER SIGNATURE (enforcer's signature, captured in the mobile app at issuing)
 # ─────────────────────────────────────────
-class OfficerSignature(models.Model):
+class EnforcerSignature(models.Model):
     ticket = models.OneToOneField(
-        Ticket, on_delete=models.CASCADE, related_name='officer_signature'
+        Ticket, on_delete=models.CASCADE, related_name='enforcer_signature'
     )
     data = models.BinaryField()
     content_type = models.CharField(max_length=50, default='image/png')
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"Officer signature for {self.ticket.transaction_code}"
+        return f"Enforcer signature for {self.ticket.transaction_code}"
