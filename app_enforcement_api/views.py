@@ -27,7 +27,7 @@ from .models import (
     DeclineEvidence, VehicleRegistration, DeviceToken, TicketSignature,
     EnforcerSignature,
 )
-from .signature_utils import decode_signature
+from .signature_utils import decode_signature, validate_png, MAX_SIGNATURE_BYTES
 from .serializer import (
     EnforcerSerializer, ViolationSerializer,
     TicketSerializer, DetectionSerializer
@@ -1010,6 +1010,45 @@ def upload_evidence(request, ticket_id):
         )
 
     return Response({'success': True, 'message': f'{len(files)} file(s) uploaded'})
+
+
+# ─────────────────────────────────────────
+# MOBILE: attach the enforcer's signature to a ticket (multipart, field 'signature')
+# Sent by the app right after the ticket is created. Write-once.
+# ─────────────────────────────────────────
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@parser_classes([MultiPartParser, FormParser])
+def upload_enforcer_signature(request, ticket_id):
+    try:
+        ticket = Ticket.objects.select_related('enforcer__user').get(id=ticket_id)
+    except Ticket.DoesNotExist:
+        return Response({'error': 'Ticket not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    # Only the enforcer who issued the ticket (or an admin) may attach the signature
+    issuer = ticket.enforcer.user if ticket.enforcer else None
+    if not (request.user.is_staff or (issuer is not None and issuer == request.user)):
+        return Response({'error': 'Not allowed.'}, status=status.HTTP_403_FORBIDDEN)
+
+    f = request.FILES.get('signature')
+    if not f:
+        return Response({'error': 'Signature required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        raw = validate_png(f.read(MAX_SIGNATURE_BYTES + 1), 'Enforcer signature')
+    except ValueError as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    # A saved signature is never replaced
+    if EnforcerSignature.objects.filter(ticket_id=ticket.id).exists():
+        return Response({'error': 'Signature already saved.'}, status=status.HTTP_409_CONFLICT)
+
+    try:
+        EnforcerSignature.objects.create(ticket=ticket, data=raw)
+    except IntegrityError:
+        return Response({'error': 'Signature already saved.'}, status=status.HTTP_409_CONFLICT)
+
+    return Response({'success': True}, status=status.HTTP_201_CREATED)
 
 # ─────────────────────────────────────────
 # VIEWSETS (CRUD)
