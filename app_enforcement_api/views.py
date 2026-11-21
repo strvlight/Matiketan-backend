@@ -9,7 +9,7 @@ from decimal import Decimal, InvalidOperation
 from django.utils import timezone
 from django.db.models import Q, Value
 from django.db.models.functions import Replace
-from django.db import transaction, IntegrityError
+from django.db import transaction, IntegrityError, connection
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.http import HttpResponse
@@ -17,6 +17,7 @@ from django.conf import settings
 from .push import notify_detection
 import os
 import re
+import zlib
 import base64
 import random, string
 from io import BytesIO
@@ -264,8 +265,7 @@ def compress_image(uploaded_file, max_width=800, quality=70):
     return buf.getvalue()
 
 
-@api_view(['POST'])
-@permission_classes([AllowAny])  # protected by the X-Detector-Key header below
+
 def process_detection(plate_number, location, confidence_score, image_file):
     now = timezone.now()
     window = timedelta(minutes=settings.DUPLICATE_WINDOW_MINUTES)
@@ -743,6 +743,7 @@ def submit_ticket(request):
             transaction_code=generate_tx_code(),
             plate_number=request.data.get('plate_number', ''),
             vehicle_type=request.data.get('vehicle_type', ''),
+            vehicle_color=str(request.data.get('vehicle_color', '')).strip(),
             driver_name=str(request.data.get('driver_name', '')).strip(), 
             violation=violation,
             location=request.data.get('location', ''),
@@ -765,6 +766,7 @@ def submit_ticket(request):
         'id': ticket.id,
         'transaction_code': ticket.transaction_code,
         'plate_number': ticket.plate_number,
+        'vehicle_color': ticket.vehicle_color,
         'vehicle_type': ticket.vehicle_type,
         'driver_name': ticket.driver_name,
         'violation': ticket.violation.name,
@@ -794,10 +796,14 @@ def get_tickets(request):
             status=status.HTTP_401_UNAUTHORIZED
         )
 
-    tickets = Ticket.objects.filter(enforcer=enforcer).order_by('-date_issued')
+    tickets = (Ticket.objects.filter(enforcer=enforcer)
+           .select_related('violation')
+           .prefetch_related('evidence')
+           .order_by('-date_issued'))
 
     data = []
     for t in tickets:
+        has_sig = bool(t.signature_data)
         data.append({
             'id': t.id,
             'transaction_code': t.transaction_code,
@@ -809,9 +815,19 @@ def get_tickets(request):
             'enforcer_badge': enforcer.badge_id,
             'enforcer_name': enforcer.full_name,
             'status': t.status,
-            'fine_amount': str(t.violation.fine_amount) if t.violation else '0',
+            'fine_amount': str(t.violation.fine_amount) if t.violation else '0', 
             'sms_message': ticket_sms_text(t),
             'date_issued':timezone.localtime(t.date_issued).strftime('%b %d, %Y %I:%M %p'),
+            'vehicle_color': t.vehicle_color,
+            'evidence': [
+              {'id': e.id,
+              'url': request.build_absolute_uri(e.file.url),
+              'type': e.file_type}
+               for e in t.evidence.all()
+             ],
+            'has_signature': has_sig,
+            'signature_url': request.build_absolute_uri(
+                f'/api/tickets/{t.id}/signature/') if has_sig else '',  
         })
 
     return Response(data, status=status.HTTP_200_OK)
@@ -872,6 +888,7 @@ def ticket_to_dict(t, request=None):
         'signature_url': signature_url,
         'has_enforcer_signature': has_enforcer_signature,
         'evidence': evidence,
+        'vehicle_color': t.vehicle_color,
     }
 
 # ─────────────────────────────────────────

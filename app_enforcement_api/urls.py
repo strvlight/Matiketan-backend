@@ -9,8 +9,8 @@ from .views import (
     receive_detection, get_pending_detections,
     update_detection,
     get_declined_detections, get_decline_evidence, get_declined_detail,
-    admin_login, admin_search_tickets, admin_mark_paid,
-    admin_create_enforcer, admin_enforcer_photo
+    admin_login, admin_search_tickets, admin_mark_paid, admin_create_enforcer, admin_enforcer_photo,
+    ticket_signature, admin_ticket_signature, admin_ticket_enforcer_signature
 )
 
 router = DefaultRouter()
