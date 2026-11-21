@@ -18,6 +18,12 @@ class Enforcer(models.Model):
     photo_data = models.BinaryField(null=True, blank=True)
     photo_type = models.CharField(max_length=50, default='image/jpeg')
 
+    # Administrator who created this enforcer account (audit trail)
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='created_enforcers',
+    )
+
     def __str__(self):
         return f"{self.full_name} ({self.badge_id})"
 
@@ -180,3 +186,33 @@ class Evidence(models.Model):
 
     def __str__(self):
         return f"Evidence for {self.ticket.transaction_code}"
+
+
+# ─────────────────────────────────────────
+# TICKET SIGNATURE (violator's signature, captured on the web settlement page only)
+# ─────────────────────────────────────────
+class TicketSignature(models.Model):
+    ticket = models.OneToOneField(
+        Ticket, on_delete=models.CASCADE, related_name='signature'
+    )
+    data = models.BinaryField()
+    content_type = models.CharField(max_length=50, default='image/png')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Signature for {self.ticket.transaction_code}"
+
+
+# ─────────────────────────────────────────
+# ENFORCER SIGNATURE (enforcer's signature, captured in the mobile app at issuing)
+# ─────────────────────────────────────────
+class EnforcerSignature(models.Model):
+    ticket = models.OneToOneField(
+        Ticket, on_delete=models.CASCADE, related_name='enforcer_signature'
+    )
+    data = models.BinaryField()
+    content_type = models.CharField(max_length=50, default='image/png')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Enforcer signature for {self.ticket.transaction_code}"

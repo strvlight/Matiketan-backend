@@ -5,12 +5,12 @@ from .views import (
     TicketViewSet, DetectionViewSet, detect_from_image, get_detection_image, get_profile,
     login_view, logout_view, profile_photo, register_device,
     submit_ticket, get_tickets,
-    lookup_plate, upload_evidence,
+    lookup_plate, upload_evidence, upload_enforcer_signature,
     receive_detection, get_pending_detections,
     update_detection,
     get_declined_detections, get_decline_evidence, get_declined_detail,
     admin_login, admin_search_tickets, admin_mark_paid,
-    admin_create_enforcer
+    admin_create_enforcer, admin_enforcer_photo
 )
 
 router = DefaultRouter()
@@ -27,12 +27,15 @@ urlpatterns = [
     path('my-tickets/', get_tickets, name='get_tickets'),
     path('lookup-plate/', lookup_plate, name='lookup_plate'),
     path('tickets/<int:ticket_id>/evidence/', upload_evidence, name='upload_evidence'),
+    path('tickets/<int:ticket_id>/signature/', upload_enforcer_signature, name='upload_enforcer_signature'),
     path('detections/receive/', receive_detection, name='receive_detection'),
     path('detections/pending/', get_pending_detections, name='pending_detections'),
     path('detections/<int:detection_id>/update/', update_detection, name='update_detection'),
     path('auth/admin-login/', admin_login, name='admin_login'),
     path('admin/tickets/search/', admin_search_tickets, name='admin_search_tickets'),
     path('admin/tickets/<int:ticket_id>/pay/', admin_mark_paid, name='admin_mark_paid'),
+    path('admin/tickets/<int:ticket_id>/signature/', admin_ticket_signature, name='admin_ticket_signature'),
+    path('admin/tickets/<int:ticket_id>/enforcer-signature/', admin_ticket_enforcer_signature, name='admin_ticket_enforcer_signature'),
     path('admin/enforcers/create/', admin_create_enforcer, name='admin_create_enforcer'),
     path('admin/enforcers/<int:enforcer_id>/photo/', admin_enforcer_photo, name='admin_enforcer_photo'),
     path('detections/<int:detection_id>/image/', get_detection_image, name='detection_image'),
