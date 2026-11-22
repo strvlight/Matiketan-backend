@@ -14,7 +14,7 @@ LTMS_SUPABASE_URL = os.getenv('LTMS_SUPABASE_URL', '')
 LTMS_SERVICE_ROLE_KEY = os.getenv('LTMS_SERVICE_ROLE_KEY', '')
 
 
-zPLATE_RECOGNIZER_TOKEN = os.getenv('PLATE_RECOGNIZER_TOKEN', '')
+PLATE_RECOGNIZER_TOKEN = os.getenv('PLATE_RECOGNIZER_TOKEN', '')
 
 # Media files (uploads)
 MEDIA_URL = '/media/'

@@ -106,14 +106,17 @@ def ltms_fetch_vehicle(plate):
 
     try:
         res = requests.get(
-            f'{settings.LTMS_SUPABASE_URL}/rest/v1/vehicles',
-            headers={'apikey': settings.LTMS_SERVICE_ROLE_KEY},
-            params={
-                'plate_number': f'eq.{plate}',
-                'select': 'plate_number,vehicle_type,brand,model,color,owners(full_name,mobile_number)',
-            },
-            timeout=5,
-        )
+    f'{settings.LTMS_SUPABASE_URL}/rest/v1/vehicles',
+    headers={
+        'apikey': settings.LTMS_SERVICE_ROLE_KEY,
+        'Authorization': f'Bearer {settings.LTMS_SERVICE_ROLE_KEY}',
+    },
+    params={
+        'plate_number': f'ilike.{plate}',
+        'select': 'plate_number,vehicle_type,brand,model,color,owners(full_name,mobile_number)',
+    },
+    timeout=5,
+)
         res.raise_for_status()
         rows = res.json()
     except Exception as e:
@@ -808,7 +811,7 @@ def get_tickets(request):
 
     data = []
     for t in tickets:
-        has_sig = bool(t.signature_data)
+        sig_bytes = sigs.get(t.id)
         data.append({
             'id': t.id,
             'transaction_code': t.transaction_code,
@@ -829,7 +832,8 @@ def get_tickets(request):
                 for e in t.evidence.all()
             ],
             'signature_b64': (
-                base64.b64encode(bytes(sigs[t.id])).decode() if t.id in sigs else ''
+                base64.b64encode(bytes(sig_bytes)).decode()
+                if sig_bytes else ''
             ),
             'date_paid': (
                 timezone.localtime(t.date_paid).strftime('%b %d, %Y %I:%M %p')
