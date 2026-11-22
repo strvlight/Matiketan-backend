@@ -743,7 +743,7 @@ def submit_ticket(request):
             transaction_code=generate_tx_code(),
             plate_number=request.data.get('plate_number', ''),
             vehicle_type=request.data.get('vehicle_type', ''),
-            vehicle_color=str(request.data.get('vehicle_color', '')).strip(),
+            vehicle_color=request.data.get('vehicle_color', ''),
             driver_name=str(request.data.get('driver_name', '')).strip(), 
             violation=violation,
             location=request.data.get('location', ''),
@@ -800,6 +800,11 @@ def get_tickets(request):
            .select_related('violation')
            .prefetch_related('evidence')
            .order_by('-date_issued'))
+    
+    sigs = {
+        s.ticket_id: s.data
+        for s in EnforcerSignature.objects.filter(ticket__in=tickets)
+    }
 
     data = []
     for t in tickets:
@@ -820,14 +825,16 @@ def get_tickets(request):
             'date_issued':timezone.localtime(t.date_issued).strftime('%b %d, %Y %I:%M %p'),
             'vehicle_color': t.vehicle_color,
             'evidence': [
-              {'id': e.id,
-              'url': request.build_absolute_uri(e.file.url),
-              'type': e.file_type}
-               for e in t.evidence.all()
-             ],
-            'has_signature': has_sig,
-            'signature_url': request.build_absolute_uri(
-                f'/api/tickets/{t.id}/signature/') if has_sig else '',  
+                {'url': request.build_absolute_uri(e.file.url), 'type': e.file_type}
+                for e in t.evidence.all()
+            ],
+            'signature_b64': (
+                base64.b64encode(bytes(sigs[t.id])).decode() if t.id in sigs else ''
+            ),
+            'date_paid': (
+                timezone.localtime(t.date_paid).strftime('%b %d, %Y %I:%M %p')
+                if t.date_paid else ''
+            ),  
         })
 
     return Response(data, status=status.HTTP_200_OK)

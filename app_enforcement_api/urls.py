@@ -47,4 +47,5 @@ urlpatterns = [
     path('profile/photo/', profile_photo, name='profile_photo'),
     path('detections/detect/', detect_from_image, name='detect_from_image'),
     path('tickets/<int:ticket_id>/signature/', ticket_signature, name='ticket_signature'),
+    path('tickets/<int:ticket_id>/enforcer-signature/', upload_enforcer_signature, name='upload_enforcer_signature')
 ] + router.urls
