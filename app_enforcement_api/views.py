@@ -1260,6 +1260,7 @@ def _admin_profile_dict(user):
         'full_name': user.first_name or user.username,
         'username': user.username,
         'position': p.position,
+        'office': p.office,
         'address': p.address,
         'bio': p.bio,
         'photo_url': _data_url(p.photo_data, p.photo_type) if p.photo_data else None,
@@ -1289,7 +1290,8 @@ def admin_profile(request):
             user.last_name = ''
         user.save()
 
-        for field, limit in (('position', 100), ('address', 255), ('bio', 1000)):
+        for field, limit in (('position', 100), ('office', 100),
+                             ('address', 255), ('bio', 1000)):
             if field in d:
                 setattr(p, field, str(d[field]).strip()[:limit])
         p.save()
