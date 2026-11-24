@@ -7,7 +7,7 @@ from rest_framework.authtoken.models import Token
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from django.utils import timezone
-from django.db.models import Q, Value
+from django.db.models import Q, Value, F
 from django.db.models.functions import Replace
 from django.db import transaction, IntegrityError, connection
 from django.contrib.auth import authenticate
@@ -481,17 +481,13 @@ def release_expired_claims():
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_pending_detections(request):
-    """
-    Flutter app polls this endpoint to check for new detections.
-    Shows 'pending' ones, plus the ones this officer has claimed.
-    Detections claimed by another officer are hidden.
-    """
     release_expired_claims()
     me = Enforcer.objects.filter(user=request.user).first()
     detections = Detection.objects.filter(
         Q(status='pending') | Q(status='in_progress', claimed_by=me)
     ).order_by('-detected_at')
 
+    fmt = '%b %d, %Y %I:%M %p'
     data = []
     for d in detections:
         data.append({
@@ -502,7 +498,9 @@ def get_pending_detections(request):
             'status': d.status,
             'claimed_by_me': d.status == 'in_progress',
             'has_image': DetectionImage.objects.filter(detection=d).exists(),
-            'detected_at': timezone.localtime(d.detected_at).strftime('%b %d, %Y %I:%M %p'),
+            'detected_at': timezone.localtime(d.detected_at).strftime(fmt),
+            'last_seen': timezone.localtime(d.last_seen).strftime(fmt),
+            'sighting_count': d.sighting_count,
         })
 
     return Response(data, status=status.HTTP_200_OK)
