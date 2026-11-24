@@ -100,18 +100,15 @@ class Detection(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     detected_at = models.DateTimeField(auto_now_add=True)
     reviewed_by = models.ForeignKey(Enforcer, on_delete=models.SET_NULL, null=True, blank=True)
+    claimed_by = models.ForeignKey(Enforcer, on_delete=models.SET_NULL, null=True, blank=True, related_name='claimed_detections')
+    claimed_at = models.DateTimeField(null=True, blank=True)
     linked_ticket = models.ForeignKey(Ticket, on_delete=models.SET_NULL, null=True, blank=True)
     decline_reason = models.CharField(max_length=255, blank=True, default='')
     decline_notes = models.TextField(blank=True, default='')
     declined_at = models.DateTimeField(null=True, blank=True)
     last_seen = models.DateTimeField(null=True, blank=True)
     sighting_count = models.PositiveIntegerField(default=1)
-    claimed_by = models.ForeignKey(
-        Enforcer, on_delete=models.SET_NULL, null=True, blank=True,
-        related_name='claimed_detections',
-    )
-    claimed_at = models.DateTimeField(null=True, blank=True)
-
+    
     def __str__(self):
         return f"Detection - {self.plate_number} ({self.status})"
     

@@ -421,14 +421,27 @@ def detect_from_image(request):
 # ─────────────────────────────────────────
 # GET PENDING DETECTIONS (Flutter polls this)
 # ─────────────────────────────────────────
+def release_expired_claims():
+    """A claim that nobody finished goes back to 'pending' after CLAIM_MINUTES."""
+    minutes = getattr(settings, 'CLAIM_MINUTES', 10)
+    Detection.objects.filter(
+        status='in_progress',
+        claimed_at__lt=timezone.now() - timedelta(minutes=minutes),
+    ).update(status='pending', claimed_by=None, claimed_at=None)
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_pending_detections(request):
     """
     Flutter app polls this endpoint to check for new detections.
+    Shows 'pending' ones, plus the ones this officer has claimed.
+    Detections claimed by another officer are hidden.
     """
+    release_expired_claims()
+    me = Enforcer.objects.filter(user=request.user).first()
     detections = Detection.objects.filter(
-        status='pending'
+        Q(status='pending') | Q(status='in_progress', claimed_by=me)
     ).order_by('-detected_at')
 
     data = []
@@ -439,6 +452,7 @@ def get_pending_detections(request):
             'location': d.location,
             'confidence_score': str(d.confidence_score),
             'status': d.status,
+            'claimed_by_me': d.status == 'in_progress',
             'has_image': DetectionImage.objects.filter(detection=d).exists(),
             'detected_at': timezone.localtime(d.detected_at).strftime('%b %d, %Y %I:%M %p'),
         })
@@ -463,6 +477,8 @@ def get_detection_image(request, detection_id):
 @parser_classes([MultiPartParser, FormParser, JSONParser])
 def update_detection(request, detection_id):
     new_status = request.data.get('status', '')
+    # the Flutter app may send 'claim' / 'release'
+    new_status = {'claim': 'in_progress', 'release': 'pending'}.get(new_status, new_status)
 
     with transaction.atomic():
         try:
@@ -472,18 +488,72 @@ def update_detection(request, detection_id):
             return Response({'error': 'Detection not found.'},
                             status=status.HTTP_404_NOT_FOUND)
 
+        me = Enforcer.objects.filter(user=request.user).first()
+
+        # an expired claim counts as free again
+        minutes = getattr(settings, 'CLAIM_MINUTES', 10)
+        if (detection.status == 'in_progress' and detection.claimed_at
+                and detection.claimed_at < timezone.now() - timedelta(minutes=minutes)):
+            detection.status = 'pending'
+            detection.claimed_by = None
+            detection.claimed_at = None
+            detection.save()
+
+        # ── CLAIM: officer opens the alert ──
+        if new_status == 'in_progress':
+            if detection.status == 'in_progress' and detection.claimed_by_id == (me.id if me else None):
+                detection.claimed_at = timezone.now()   # same officer: refresh the timer
+                detection.save()
+            elif detection.status == 'pending':
+                detection.status = 'in_progress'
+                detection.claimed_by = me
+                detection.claimed_at = timezone.now()
+                detection.save()
+            else:
+                who = detection.claimed_by.full_name if detection.claimed_by else 'another officer'
+                msg = (f'Being handled by {who}.' if detection.status == 'in_progress'
+                       else f'Already {detection.status}.')
+                return Response({'error': msg, 'status': detection.status},
+                                status=status.HTTP_409_CONFLICT)
+            return Response({'id': detection.id, 'status': detection.status,
+                             'message': 'Detection claimed.'}, status=status.HTTP_200_OK)
+
+        # ── RELEASE: officer backs out ──
+        if new_status == 'pending':
+            if detection.status == 'in_progress' and detection.claimed_by_id == (me.id if me else None):
+                detection.status = 'pending'
+                detection.claimed_by = None
+                detection.claimed_at = None
+                detection.save()
+            return Response({'id': detection.id, 'status': detection.status,
+                             'message': 'Detection released.'}, status=status.HTTP_200_OK)
+
         if new_status in ['confirmed', 'declined']:
-            # only a pending detection can be confirmed/declined
-            if detection.status != 'pending':
-                who = detection.reviewed_by.full_name if detection.reviewed_by else 'another officer'
-                return Response(
-                    {'error': f'Already {detection.status} by {who}.',
-                     'status': detection.status},
-                    status=status.HTTP_409_CONFLICT,
-                )
+            # same officer re-confirming (e.g. submit_ticket already confirmed it): ok
+            if (new_status == 'confirmed' and detection.status == 'confirmed'
+                    and me and detection.reviewed_by_id == me.id):
+                return Response({'id': detection.id, 'status': detection.status,
+                                 'message': 'Detection confirmed successfully.'},
+                                status=status.HTTP_200_OK)
+
+            # only a pending one, or one claimed by THIS officer, can be confirmed/declined
+            allowed = (detection.status == 'pending' or
+                       (detection.status == 'in_progress' and me
+                        and detection.claimed_by_id == me.id))
+            if not allowed:
+                if detection.status == 'in_progress':
+                    who = detection.claimed_by.full_name if detection.claimed_by else 'another officer'
+                    msg = f'Being handled by {who}.'
+                else:
+                    who = detection.reviewed_by.full_name if detection.reviewed_by else 'another officer'
+                    msg = f'Already {detection.status} by {who}.'
+                return Response({'error': msg, 'status': detection.status},
+                                status=status.HTTP_409_CONFLICT)
 
             detection.status = new_status
-            detection.reviewed_by = Enforcer.objects.filter(user=request.user).first()
+            detection.reviewed_by = me
+            detection.claimed_by = None
+            detection.claimed_at = None
 
             if new_status == 'declined':
                 detection.decline_reason = str(request.data.get('reason', '')).strip()
@@ -741,7 +811,26 @@ def submit_ticket(request):
     )
 
     # Create ticket (the enforcer signature, if sent, is saved in the same transaction)
+    detection_id = request.data.get('detection_id')
     with transaction.atomic():
+        # If the ticket comes from a detection, lock it and make sure this officer
+        # still owns it. A second officer is rejected BEFORE any ticket is created.
+        det = None
+        if detection_id:
+            try:
+                det = Detection.objects.select_for_update().get(id=detection_id)
+            except (Detection.DoesNotExist, ValueError):
+                return Response({'error': 'Detection not found.'},
+                                status=status.HTTP_404_NOT_FOUND)
+            mine = det.status == 'in_progress' and det.claimed_by_id == enforcer.id
+            if not (mine or det.status == 'pending'):
+                who = (det.claimed_by or det.reviewed_by)
+                who = who.full_name if who else 'another officer'
+                return Response(
+                    {'error': f'This detection is already {det.status} by {who}.',
+                     'status': det.status},
+                    status=status.HTTP_409_CONFLICT)
+
         ticket = Ticket.objects.create(
             transaction_code=generate_tx_code(),
             plate_number=request.data.get('plate_number', ''),
@@ -755,6 +844,12 @@ def submit_ticket(request):
         )
         if enforcer_signature_png:
             EnforcerSignature.objects.create(ticket=ticket, data=enforcer_signature_png)
+        if det:
+            det.status = 'confirmed'
+            det.reviewed_by = enforcer
+            det.claimed_by = None
+            det.claimed_at = None
+            det.save()
 
         # ── SMS NOTIFICATION ──
     phone_number = request.data.get('phone_number', '')
