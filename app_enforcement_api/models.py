@@ -169,8 +169,9 @@ class DeviceToken(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     
+## ─────────────────────────────────────────
 # EVIDENCE (photos/videos per ticket)
-
+# ─────────────────────────────────────────
 class Evidence(models.Model):
     ticket = models.ForeignKey(
         Ticket,
@@ -185,8 +186,9 @@ class Evidence(models.Model):
         return f"Evidence for {self.ticket.transaction_code}"
 
 
+# ─────────────────────────────────────────
 # TICKET SIGNATURE (violator's signature, captured on the web settlement page only)
-
+# ─────────────────────────────────────────
 class TicketSignature(models.Model):
     ticket = models.OneToOneField(
         Ticket, on_delete=models.CASCADE, related_name='signature'
@@ -199,8 +201,9 @@ class TicketSignature(models.Model):
         return f"Signature for {self.ticket.transaction_code}"
 
 
+# ─────────────────────────────────────────
 # ENFORCER SIGNATURE (enforcer's signature, captured in the mobile app at issuing)
-
+# ─────────────────────────────────────────
 class EnforcerSignature(models.Model):
     ticket = models.OneToOneField(
         Ticket, on_delete=models.CASCADE, related_name='enforcer_signature'
@@ -213,10 +216,13 @@ class EnforcerSignature(models.Model):
         return f"Enforcer signature for {self.ticket.transaction_code}"
 
 
+# ─────────────────────────────────────────
 # ADMIN PROFILE (web dashboard: settings page + sidebar)
+# ─────────────────────────────────────────
 class AdminProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='admin_profile')
     position = models.CharField(max_length=100, blank=True, default='')
+    office = models.CharField(max_length=100, blank=True, default='')
     address = models.CharField(max_length=255, blank=True, default='')
     bio = models.TextField(blank=True, default='')
     photo_data = models.BinaryField(null=True, blank=True)
