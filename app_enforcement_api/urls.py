@@ -10,7 +10,8 @@ from .views import (
     update_detection,
     get_declined_detections, get_decline_evidence, get_declined_detail,
     admin_login, admin_search_tickets, admin_mark_paid, admin_create_enforcer, admin_enforcer_photo,
-    ticket_signature, admin_ticket_signature, admin_ticket_enforcer_signature
+    ticket_signature, admin_ticket_signature, admin_ticket_enforcer_signature,
+    admin_profile, admin_profile_photo,
 )
 
 router = DefaultRouter()
@@ -38,6 +39,8 @@ urlpatterns = [
     path('admin/tickets/<int:ticket_id>/enforcer-signature/', admin_ticket_enforcer_signature, name='admin_ticket_enforcer_signature'),
     path('admin/enforcers/create/', admin_create_enforcer, name='admin_create_enforcer'),
     path('admin/enforcers/<int:enforcer_id>/photo/', admin_enforcer_photo, name='admin_enforcer_photo'),
+    path('admin/profile/', admin_profile, name='admin_profile'),
+    path('admin/profile/photo/', admin_profile_photo, name='admin_profile_photo'),
     path('detections/<int:detection_id>/image/', get_detection_image, name='detection_image'),
     path('detections/declined/', get_declined_detections, name='declined_detections'),
     path('detections/<int:detection_id>/evidence/', get_decline_evidence, name='decline_evidence'),
@@ -47,5 +50,5 @@ urlpatterns = [
     path('profile/photo/', profile_photo, name='profile_photo'),
     path('detections/detect/', detect_from_image, name='detect_from_image'),
     path('tickets/<int:ticket_id>/signature/', ticket_signature, name='ticket_signature'),
-    path('tickets/<int:ticket_id>/enforcer-signature/', upload_enforcer_signature, name='upload_enforcer_signature')
+    path('tickets/<int:ticket_id>/enforcer-signature/', upload_enforcer_signature, name='upload_enforcer_signature'),
 ] + router.urls

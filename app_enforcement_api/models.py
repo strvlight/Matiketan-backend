@@ -214,3 +214,19 @@ class EnforcerSignature(models.Model):
 
     def __str__(self):
         return f"Enforcer signature for {self.ticket.transaction_code}"
+
+
+# ─────────────────────────────────────────
+# ADMIN PROFILE (web dashboard: settings page + sidebar)
+# ─────────────────────────────────────────
+class AdminProfile(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='admin_profile')
+    position = models.CharField(max_length=100, blank=True, default='')
+    office = models.CharField(max_length=100, blank=True, default='')
+    address = models.CharField(max_length=255, blank=True, default='')
+    bio = models.TextField(blank=True, default='')
+    photo_data = models.BinaryField(null=True, blank=True)
+    photo_type = models.CharField(max_length=50, default='image/jpeg')
+
+    def __str__(self):
+        return f"Admin profile: {self.user.username}"

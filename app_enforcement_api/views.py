@@ -26,7 +26,7 @@ from PIL import Image
 from .models import (
     Enforcer, Evidence, Violation, Ticket, Detection, DetectionImage,
     DeclineEvidence, VehicleRegistration, DeviceToken, TicketSignature,
-    EnforcerSignature,
+    EnforcerSignature, AdminProfile,
 )
 from .signature_utils import decode_signature, validate_png, MAX_SIGNATURE_BYTES
 from .serializer import (
@@ -268,8 +268,56 @@ def compress_image(uploaded_file, max_width=800, quality=70):
     return buf.getvalue()
 
 
+# ─────────────────────────────────────────
+# HELPER: turn "lat, lng (GPS)" into a readable place name
+# ─────────────────────────────────────────
+GPS_RE = re.compile(
+    r'^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*(?:\(GPS\))?\s*$',
+    re.I,
+)
+_geo_cache = {}
+
+
+def resolve_location(location):
+    location = (location or '').strip()
+    m = GPS_RE.match(location)
+    if not m:
+        return location  # already a readable place name
+
+    lat, lng = float(m.group(1)), float(m.group(2))
+    key = (round(lat, 4), round(lng, 4))
+    if key in _geo_cache:
+        return _geo_cache[key]
+
+    import requests
+    try:
+        r = requests.get(
+            'https://nominatim.openstreetmap.org/reverse',
+            params={'lat': lat, 'lon': lng, 'format': 'jsonv2',
+                    'zoom': 18, 'addressdetails': 1},
+            headers={'User-Agent': 'CTTMD-Enforcement/1.0 (school project)'},
+            timeout=5,
+        )
+        r.raise_for_status()
+        data = r.json()
+        a = data.get('address', {})
+        parts = [
+            a.get('road'),
+            a.get('neighbourhood') or a.get('suburb') or a.get('quarter'),
+            a.get('city') or a.get('town') or a.get('municipality'),
+        ]
+        name = ', '.join(p for p in parts if p) or data.get('display_name')
+        if name:
+            _geo_cache[key] = name
+            return name
+    except Exception as e:
+        print(f'[GEOCODE] Failed: {e}')
+
+    return location  # fall back to the raw coordinates
+
 
 def process_detection(plate_number, location, confidence_score, image_file):
+    location = resolve_location(location)   # GPS coordinates -> place name
     now = timezone.now()
     window = timedelta(minutes=settings.DUPLICATE_WINDOW_MINUTES)
     limit = settings.PARKING_LIMIT_SECONDS
@@ -1203,6 +1251,80 @@ def admin_enforcer_photo(request, enforcer_id):
     return Response(EnforcerSerializer(e, context={'request': request}).data)
 
 
+# ─────────────────────────────────────────
+# ADMIN: own profile (settings page + sidebar)
+# ─────────────────────────────────────────
+def _admin_profile_dict(user):
+    p, _ = AdminProfile.objects.get_or_create(user=user)
+    return {
+        'full_name': user.first_name or user.username,
+        'username': user.username,
+        'position': p.position,
+        'office': p.office,
+        'address': p.address,
+        'bio': p.bio,
+        'photo_url': _data_url(p.photo_data, p.photo_type) if p.photo_data else None,
+    }
+
+
+@api_view(['GET', 'PATCH'])
+@permission_classes([IsAdminUser])
+@parser_classes([JSONParser, MultiPartParser, FormParser])
+def admin_profile(request):
+    user = request.user
+    p, _ = AdminProfile.objects.get_or_create(user=user)
+
+    if request.method == 'PATCH':
+        d = request.data
+        if 'username' in d:
+            new = str(d['username']).strip()
+            if not new:
+                return Response({'error': 'Username is required.'},
+                                status=status.HTTP_400_BAD_REQUEST)
+            if User.objects.filter(username__iexact=new).exclude(pk=user.pk).exists():
+                return Response({'error': 'Username already taken.'},
+                                status=status.HTTP_400_BAD_REQUEST)
+            user.username = new
+        if 'full_name' in d:
+            user.first_name = str(d['full_name']).strip()[:150]
+            user.last_name = ''
+        user.save()
+
+        for field, limit in (('position', 100), ('office', 100),
+                             ('address', 255), ('bio', 1000)):
+            if field in d:
+                setattr(p, field, str(d[field]).strip()[:limit])
+        p.save()
+
+    return Response(_admin_profile_dict(user))
+
+
+@api_view(['POST', 'DELETE'])
+@permission_classes([IsAdminUser])
+@parser_classes([MultiPartParser, FormParser])
+def admin_profile_photo(request):
+    p, _ = AdminProfile.objects.get_or_create(user=request.user)
+
+    if request.method == 'DELETE':
+        p.photo_data = None
+        p.save()
+        return Response(_admin_profile_dict(request.user))
+
+    f = request.FILES.get('photo')
+    if not f:
+        return Response({'error': 'Photo required.'}, status=status.HTTP_400_BAD_REQUEST)
+    if f.size > 2 * 1024 * 1024:
+        return Response({'error': 'Max 2 MB.'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        p.photo_data = compress_image(f, max_width=400, quality=80)
+        p.photo_type = 'image/jpeg'
+        p.save()
+    except Exception as ex:
+        return Response({'error': f'Invalid image: {ex}'}, status=status.HTTP_400_BAD_REQUEST)
+
+    return Response(_admin_profile_dict(request.user))
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def upload_evidence(request, ticket_id):
@@ -1307,3 +1429,36 @@ class DetectionViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminUser]
     queryset = Detection.objects.all().order_by('-detected_at')
     serializer_class = DetectionSerializer
+
+
+# ─────────────────────────────────────────
+# ONE-TIME: fix old "(GPS)" locations (open in browser while logged into /admin)
+# DELETE this view and its URL after it reports 0 remaining.
+# ─────────────────────────────────────────
+from django.contrib.admin.views.decorators import staff_member_required
+import time
+
+
+@staff_member_required
+def fix_gps_locations(request):
+    done = []
+    for Model in (Detection, Ticket):
+        rows = Model.objects.filter(location__icontains='gps')
+        for obj in rows[:20]:
+            if not GPS_RE.match(obj.location):
+                continue
+            new = resolve_location(obj.location)
+            if new != obj.location:
+                obj.location = new
+                obj.save(update_fields=['location'])
+                done.append(f'{Model.__name__} {obj.id} -> {new}')
+            time.sleep(1.1)
+
+    remaining = sum(
+        1 for M in (Detection, Ticket)
+        for o in M.objects.filter(location__icontains='gps')
+        if GPS_RE.match(o.location)
+    )
+    return HttpResponse(
+        '<br>'.join(done) + f'<hr>Fixed this run: {len(done)}<br>Remaining: {remaining}'
+    )
