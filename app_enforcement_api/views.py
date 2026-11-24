@@ -268,8 +268,56 @@ def compress_image(uploaded_file, max_width=800, quality=70):
     return buf.getvalue()
 
 
+# ─────────────────────────────────────────
+# HELPER: turn "lat, lng (GPS)" into a readable place name
+# ─────────────────────────────────────────
+GPS_RE = re.compile(
+    r'^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*(?:\(GPS\))?\s*$',
+    re.I,
+)
+_geo_cache = {}
+
+
+def resolve_location(location):
+    location = (location or '').strip()
+    m = GPS_RE.match(location)
+    if not m:
+        return location  # already a readable place name
+
+    lat, lng = float(m.group(1)), float(m.group(2))
+    key = (round(lat, 4), round(lng, 4))
+    if key in _geo_cache:
+        return _geo_cache[key]
+
+    import requests
+    try:
+        r = requests.get(
+            'https://nominatim.openstreetmap.org/reverse',
+            params={'lat': lat, 'lon': lng, 'format': 'jsonv2',
+                    'zoom': 18, 'addressdetails': 1},
+            headers={'User-Agent': 'CTTMD-Enforcement/1.0 (school project)'},
+            timeout=5,
+        )
+        r.raise_for_status()
+        data = r.json()
+        a = data.get('address', {})
+        parts = [
+            a.get('road'),
+            a.get('neighbourhood') or a.get('suburb') or a.get('quarter'),
+            a.get('city') or a.get('town') or a.get('municipality'),
+        ]
+        name = ', '.join(p for p in parts if p) or data.get('display_name')
+        if name:
+            _geo_cache[key] = name
+            return name
+    except Exception as e:
+        print(f'[GEOCODE] Failed: {e}')
+
+    return location  # fall back to the raw coordinates
+
 
 def process_detection(plate_number, location, confidence_score, image_file):
+    location = resolve_location(location)   # GPS coordinates -> place name
     now = timezone.now()
     window = timedelta(minutes=settings.DUPLICATE_WINDOW_MINUTES)
     limit = settings.PARKING_LIMIT_SECONDS
