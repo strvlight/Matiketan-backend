@@ -1355,3 +1355,36 @@ class DetectionViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminUser]
     queryset = Detection.objects.all().order_by('-detected_at')
     serializer_class = DetectionSerializer
+
+
+# ─────────────────────────────────────────
+# ONE-TIME: fix old "(GPS)" locations (open in browser while logged into /admin)
+# DELETE this view and its URL after it reports 0 remaining.
+# ─────────────────────────────────────────
+from django.contrib.admin.views.decorators import staff_member_required
+import time
+
+
+@staff_member_required
+def fix_gps_locations(request):
+    done = []
+    for Model in (Detection, Ticket):
+        rows = Model.objects.filter(location__icontains='gps')
+        for obj in rows[:20]:
+            if not GPS_RE.match(obj.location):
+                continue
+            new = resolve_location(obj.location)
+            if new != obj.location:
+                obj.location = new
+                obj.save(update_fields=['location'])
+                done.append(f'{Model.__name__} {obj.id} -> {new}')
+            time.sleep(1.1)
+
+    remaining = sum(
+        1 for M in (Detection, Ticket)
+        for o in M.objects.filter(location__icontains='gps')
+        if GPS_RE.match(o.location)
+    )
+    return HttpResponse(
+        '<br>'.join(done) + f'<hr>Fixed this run: {len(done)}<br>Remaining: {remaining}'
+    )
