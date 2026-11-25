@@ -499,8 +499,6 @@ def get_pending_detections(request):
             'claimed_by_me': d.status == 'in_progress',
             'has_image': DetectionImage.objects.filter(detection=d).exists(),
             'detected_at': timezone.localtime(d.detected_at).strftime(fmt),
-            'last_seen': timezone.localtime(d.last_seen).strftime(fmt),
-            'sighting_count': d.sighting_count,
         })
 
     return Response(data, status=status.HTTP_200_OK)
